@@ -1,0 +1,141 @@
+.company-detail-page {
+  min-height: 100vh;
+  padding: 32px;
+  color: white;
+  background: #080810;
+}
+
+.back-link {
+  color: #b78cff;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.company-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  margin-top: 28px;
+  margin-bottom: 36px;
+  padding: 28px;
+  border: 1px solid rgba(183, 140, 255, 0.35);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.company-header h1 {
+  margin: 0 0 8px;
+  font-size: 36px;
+}
+
+.company-header p {
+  margin: 6px 0;
+  color: #c9c9d6;
+}
+
+.price-box {
+  min-width: 220px;
+  padding: 22px;
+  border-radius: 18px;
+  background: rgba(126, 87, 255, 0.18);
+  border: 1px solid rgba(183, 140, 255, 0.3);
+}
+
+.price-box h2 {
+  margin: 8px 0;
+  font-size: 32px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 16px;
+  margin-bottom: 36px;
+}
+
+.metric-card {
+  padding: 18px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.metric-card p {
+  margin: 0 0 8px;
+  color: #c9c9d6;
+}
+
+.metric-card h3 {
+  margin: 0;
+}
+
+.financial-table {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 36px;
+}
+
+.financial-table div {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.financial-table span {
+  color: #c9c9d6;
+  text-align: right;
+}
+
+.filings-table {
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.filings-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.filings-header {
+  font-weight: 700;
+  background: rgba(126, 87, 255, 0.22);
+}
+
+.filings-row a {
+  color: #b78cff;
+  font-weight: 600;
+}
+
+.error-text {
+  color: #ff7b7b;
+}
+
+@media (max-width: 900px) {
+  .company-header {
+    flex-direction: column;
+  }
+
+  .metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .filings-row {
+    grid-template-columns: 1fr;
+  }
+
+  .financial-table div {
+    flex-direction: column;
+  }
+
+  .financial-table span {
+    text-align: left;
+  }
+}
