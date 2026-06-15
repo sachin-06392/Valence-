@@ -1,0 +1,5 @@
+{
+  "buildCommand": "cd compfinder/frontend && npm install && npm run build",
+  "outputDirectory": "compfinder/frontend/build",
+  "installCommand": "echo skip"
+}
