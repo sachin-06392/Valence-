@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import "./CompanyDetail.css";
+
 const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
-
-const API_BASE = "http://127.0.0.1:8000";
-
 function money(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return "N/A";
 
