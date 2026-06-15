@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-pandas
 numpy
 requests
-python-dotenv
+python-multipart
