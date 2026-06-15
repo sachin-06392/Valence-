@@ -11,13 +11,14 @@ function HomePage() {
   const [results, setResults] = useState(null);
   const [privateCompany, setPrivateCompany] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState("");
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const handleSubmit = async (formData) => {
     setLoading(true);
-    setError(null);
-    setSubmitted(true);
+    setError("");
+    setResults(null);
+    setHasSubmitted(true);
 
     // This saves the private company inputs so the PDF report can use them
     setPrivateCompany(formData);
@@ -25,20 +26,30 @@ function HomePage() {
     try {
       const res = await fetch(`${API_BASE}/api/find-comps`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(formData),
       });
 
       const data = await res.json();
 
-      if (data.error) {
+      if (!res.ok) {
+        throw new Error(data?.detail || data?.error || "Something went wrong.");
+      }
+
+      if (data?.error) {
         setError(data.error);
         setResults(null);
       } else {
         setResults(data);
       }
     } catch (e) {
-      setError('Cannot reach server. Make sure the backend is running on port 8000.');
+      console.error(e);
+      setError(
+        e.message ||
+        'Cannot reach server. Make sure the backend is running on port 8000.'
+      );
       setResults(null);
     } finally {
       setLoading(false);
@@ -52,6 +63,7 @@ function HomePage() {
           <div className="logo">
             <img src="/logo4.png" alt="Valence logo" />
           </div>
+
           <span className="brand">Valence</span>
           <span className="nav-pill">Beta</span>
         </div>
@@ -66,10 +78,10 @@ function HomePage() {
         </p>
       </div>
 
-      <div className={`layout ${submitted ? 'layout-split' : 'layout-center'}`}>
+      <div className={`layout ${hasSubmitted ? 'layout-split' : 'layout-center'}`}>
         <InputPanel onSubmit={handleSubmit} loading={loading} />
 
-        {submitted && (
+        {hasSubmitted && (
           <ResultsPanel
             results={results}
             loading={loading}

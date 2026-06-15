@@ -4,10 +4,181 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 import './ResultsPanel.css';
 import ReportButton from "./ReportButton";
 
-const fmtM   = n => n != null ? `$${Number(n).toFixed(0)}M` : '—';
-const fmtB   = n => n != null ? `$${Number(n).toFixed(2)}B` : '—';
-const fmtPct = n => n != null ? `${Number(n).toFixed(1)}%` : '—';
-const fmtX   = n => n != null ? `${Number(n).toFixed(1)}×` : '—';
+const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+
+function pick(obj, keys, fallback = null) {
+  if (!obj) return fallback;
+
+  for (const key of keys) {
+    if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+      return obj[key];
+    }
+  }
+
+  return fallback;
+}
+
+function toNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "string") {
+    let clean = value
+      .replace("$", "")
+      .replace(/,/g, "")
+      .replace("×", "")
+      .replace("x", "")
+      .replace("%", "")
+      .trim();
+
+    if (!clean || clean === "—" || clean.toLowerCase() === "n/a") return null;
+
+    let multiplier = 1;
+
+    if (clean.toUpperCase().endsWith("B")) {
+      multiplier = 1000;
+      clean = clean.slice(0, -1);
+    } else if (clean.toUpperCase().endsWith("M")) {
+      multiplier = 1;
+      clean = clean.slice(0, -1);
+    }
+
+    const n = Number(clean);
+    return Number.isFinite(n) ? n * multiplier : null;
+  }
+
+  return null;
+}
+
+function firstNumber(obj, keys) {
+  for (const key of keys) {
+    const n = toNumber(obj?.[key]);
+    if (n !== null) return n;
+  }
+
+  return null;
+}
+
+function fmtM(n) {
+  const v = toNumber(n);
+  return v !== null ? `$${v.toFixed(0)}M` : '—';
+}
+
+function fmtB(n) {
+  const v = toNumber(n);
+  return v !== null ? `$${v.toFixed(2)}B` : '—';
+}
+
+function fmtPct(n) {
+  const v = toNumber(n);
+  return v !== null ? `${v.toFixed(1)}%` : '—';
+}
+
+function fmtX(n) {
+  const v = toNumber(n);
+  return v !== null ? `${v.toFixed(1)}×` : '—';
+}
+
+function normalizeCompanyForReport(c = {}) {
+  const marketCapM =
+    firstNumber(c, ["market_cap", "marketCap", "market_cap_m", "marketCapM"]) ??
+    (toNumber(c.market_cap_b) !== null ? toNumber(c.market_cap_b) * 1000 : null);
+
+  const enterpriseValueM =
+    firstNumber(c, ["enterprise_value", "enterpriseValue", "ev", "ev_m", "enterprise_value_m"]) ??
+    (toNumber(c.ev_b) !== null ? toNumber(c.ev_b) * 1000 : null);
+
+  const revenueM =
+    firstNumber(c, ["revenue", "Revenue", "revenue_m", "totalRevenue", "total_revenue_m", "sales"]) ??
+    (toNumber(c.revenue_b) !== null ? toNumber(c.revenue_b) * 1000 : null);
+
+  const ebitdaM =
+    firstNumber(c, ["ebitda", "EBITDA", "ebitda_m"]) ??
+    (toNumber(c.ebitda_b) !== null ? toNumber(c.ebitda_b) * 1000 : null);
+
+  const grossProfitM =
+    firstNumber(c, ["gross_profit", "grossProfit", "gross_profit_m"]) ??
+    (
+      revenueM !== null && toNumber(c.gross_margin) !== null
+        ? revenueM * toNumber(c.gross_margin) / 100
+        : null
+    );
+
+  const ebitdaMargin =
+    firstNumber(c, ["ebitda_margin", "ebitdaMargin", "margin"]) ??
+    (
+      revenueM !== null && revenueM !== 0 && ebitdaM !== null
+        ? ebitdaM / revenueM * 100
+        : null
+    );
+
+  return {
+    ...c,
+
+    company: pick(c, ["company", "name", "company_name"], "N/A"),
+    name: pick(c, ["name", "company", "company_name"], "N/A"),
+    ticker: pick(c, ["ticker", "symbol"], "N/A"),
+    symbol: pick(c, ["symbol", "ticker"], "N/A"),
+    industry: pick(c, ["industry", "sector", "sub"], "N/A"),
+    sub: pick(c, ["sub", "industry", "sector"], "N/A"),
+
+    revenue: revenueM,
+    ebitda: ebitdaM,
+    grossProfit: grossProfitM,
+    gross_profit: grossProfitM,
+
+    marketCap: marketCapM,
+    market_cap: marketCapM,
+    enterpriseValue: enterpriseValueM,
+    enterprise_value: enterpriseValueM,
+
+    evRevenue: firstNumber(c, ["ev_rev", "evRevenue", "ev_revenue", "evToRevenue"]),
+    ev_revenue: firstNumber(c, ["ev_rev", "evRevenue", "ev_revenue", "evToRevenue"]),
+    evEbitda: firstNumber(c, ["ev_ebitda", "evEbitda", "evToEbitda"]),
+    ev_ebitda: firstNumber(c, ["ev_ebitda", "evEbitda", "evToEbitda"]),
+    evGrossProfit: firstNumber(c, ["ev_gp", "evGrossProfit", "ev_gross_profit"]),
+    ev_gp: firstNumber(c, ["ev_gp", "evGrossProfit", "ev_gross_profit"]),
+
+    rev_growth: firstNumber(c, ["rev_growth", "revenue_growth", "revenueGrowth"]),
+    gross_margin: firstNumber(c, ["gross_margin", "grossMargin"]),
+    ebitda_margin: ebitdaMargin,
+
+    matchScore: firstNumber(c, ["match_score", "matchScore", "score"]),
+    match_score: firstNumber(c, ["match_score", "matchScore", "score"]),
+  };
+}
+
+function normalizePrivateCompanyForReport(privateCompany = {}) {
+  const revenueM =
+    firstNumber(privateCompany, ["revenue", "Revenue", "revenue_m", "targetRevenue"]) ??
+    (toNumber(privateCompany.revenue_b) !== null ? toNumber(privateCompany.revenue_b) * 1000 : null);
+
+  const ebitdaM =
+    firstNumber(privateCompany, ["ebitda", "EBITDA", "ebitda_m", "targetEbitda"]) ??
+    (toNumber(privateCompany.ebitda_b) !== null ? toNumber(privateCompany.ebitda_b) * 1000 : null);
+
+  const margin =
+    firstNumber(privateCompany, ["ebitda_margin", "ebitdaMargin", "margin"]) ??
+    (
+      revenueM !== null && revenueM !== 0 && ebitdaM !== null
+        ? ebitdaM / revenueM * 100
+        : null
+    );
+
+  return {
+    ...privateCompany,
+    name: pick(privateCompany, ["name", "company", "companyName", "targetCompany"], "Private Company"),
+    company: pick(privateCompany, ["company", "name", "companyName", "targetCompany"], "Private Company"),
+    industry: pick(privateCompany, ["industry", "sector"], "N/A"),
+    sector: pick(privateCompany, ["sector", "industry"], "N/A"),
+    revenue: revenueM,
+    ebitda: ebitdaM,
+    ebitda_margin: margin,
+  };
+}
 
 function MatchBadge({ score }) {
   const safeScore = score != null ? Number(score).toFixed(0) : '—';
@@ -25,13 +196,90 @@ function StatCard({ label, value, sub }) {
   );
 }
 
-function CompsTable({ comps = [], privateCompany }) {
+function DownloadReportButton({ company, comps, privateCompany, results }) {
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    try {
+      setDownloading(true);
+
+      const selectedComparable = normalizeCompanyForReport(company);
+      const normalizedComps = Array.isArray(comps)
+        ? comps.map(normalizeCompanyForReport)
+        : [];
+
+      const payload = {
+        target: normalizePrivateCompanyForReport(privateCompany || {}),
+        selectedComparable,
+        comparables: normalizedComps,
+
+        multiples: results?.multiples || {},
+        implied: results?.implied || {},
+        overall_range: results?.overall_range || null,
+        sector_label: results?.sector_label || "",
+        comps_count: results?.comps_count || normalizedComps.length,
+      };
+
+      const response = await fetch(`${API_BASE}/api/download-report`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error("Report download failed");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const ticker =
+        selectedComparable.ticker ||
+        selectedComparable.symbol ||
+        selectedComparable.company ||
+        "company";
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `valence-report-${ticker}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert("Could not download the report. Make sure the backend is running.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      className="download-report-btn"
+      onClick={handleDownload}
+      disabled={downloading}
+    >
+      {downloading ? "Downloading..." : "Download Report"}
+    </button>
+  );
+}
+
+function CompsTable({ comps = [], privateCompany, results }) {
   const [sort, setSort] = useState({ key: 'match_score', dir: -1 });
 
   const sorted = [...comps].sort((a, b) => {
-    const av = a[sort.key] ?? -Infinity;
-    const bv = b[sort.key] ?? -Infinity;
-    return (av - bv) * sort.dir;
+    const av = toNumber(a?.[sort.key]);
+    const bv = toNumber(b?.[sort.key]);
+
+    const safeA = av === null ? -Infinity : av;
+    const safeB = bv === null ? -Infinity : bv;
+
+    return (safeA - safeB) * sort.dir;
   });
 
   const toggleSort = k => setSort(s => ({ key: k, dir: s.key === k ? -s.dir : -1 }));
@@ -66,7 +314,7 @@ function CompsTable({ comps = [], privateCompany }) {
             const ticker = c.ticker || c.symbol || "company";
 
             return (
-              <tr key={ticker} className={i === 0 ? 'top-row' : ''}>
+              <tr key={`${ticker}-${i}`} className={i === 0 ? 'top-row' : ''}>
                 <td>
                   <Link
                     className="ticker ticker-link"
@@ -77,7 +325,7 @@ function CompsTable({ comps = [], privateCompany }) {
                 </td>
 
                 <td className="name-cell">
-                  <div className="company-name">{c.name}</div>
+                  <div className="company-name">{c.name || c.company || "N/A"}</div>
 
                   <div className="company-actions-inline">
                     <Link
@@ -87,15 +335,16 @@ function CompsTable({ comps = [], privateCompany }) {
                       Basic Details
                     </Link>
 
-                    <ReportButton
+                    <DownloadReportButton
                       company={c}
                       comps={comps}
                       privateCompany={privateCompany}
+                      results={results}
                     />
                   </div>
                 </td>
 
-                <td className="sub-cell">{c.sub}</td>
+                <td className="sub-cell">{c.sub || c.industry || "—"}</td>
                 <td><MatchBadge score={c.match_score} /></td>
                 <td>{fmtB(c.market_cap_b)}</td>
                 <td>{fmtB(c.ev_b)}</td>
@@ -258,19 +507,19 @@ export default function ResultsPanel({
       <div className="stats-row">
         <StatCard
           label="Comps found"
-          value={comps_count}
-          sub={`in ${sector_label}`}
+          value={comps_count ?? comps.length}
+          sub={`in ${sector_label || "selected sector"}`}
         />
 
         <StatCard
           label="Median EV/Revenue"
-          value={medEVRev ? `${medEVRev}×` : '—'}
+          value={medEVRev != null ? `${medEVRev}×` : '—'}
           sub="peer median"
         />
 
         <StatCard
           label="Median EV/EBITDA"
-          value={medEVEBITDA ? `${medEVEBITDA}×` : '—'}
+          value={medEVEBITDA != null ? `${medEVEBITDA}×` : '—'}
           sub="peer median"
         />
 
@@ -304,13 +553,14 @@ export default function ResultsPanel({
           <CompsTable
             comps={comps}
             privateCompany={privateCompany}
+            results={results}
           />
         )}
 
         {tab === 'multiples' && (
           <div>
             <p className="section-desc">
-              Multiples across the {comps_count} closest public comparables.
+              Multiples across the {comps_count ?? comps.length} closest public comparables.
             </p>
 
             <MultiplesTable multiples={multiples} />

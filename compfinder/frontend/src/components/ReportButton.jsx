@@ -48,6 +48,7 @@ export default function ReportButton({ company, comps, privateCompany }) {
 
   return (
     <button
+      type="button"
       className="report-btn"
       onClick={handleDownloadReport}
       disabled={loading}

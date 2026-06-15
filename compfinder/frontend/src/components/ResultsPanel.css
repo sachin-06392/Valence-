@@ -413,3 +413,30 @@
   font-size: 13px;
   padding: 1rem 0;
 }
+
+.report-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 7px 10px;
+  background: #7c3aed;
+  color: white;
+  font-weight: 600;
+  font-size: 12px;
+  cursor: pointer;
+  transition: 0.2s ease;
+  white-space: nowrap;
+  display: inline-block;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.report-btn:hover {
+  background: #5b21b6;
+  transform: translateY(-1px);
+}
+
+.report-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+}

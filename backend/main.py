@@ -4,6 +4,9 @@ from pydantic import BaseModel
 from typing import Optional
 import numpy as np
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from report_generator import build_valence_report_pdf, safe_report_filename
+
 
 from company_universe import COMPANY_UNIVERSE
 from financials_db import FINANCIALS_DB
@@ -839,4 +842,21 @@ async def generate_report(payload: dict):
         headers={
             "Content-Disposition": f"attachment; filename={filename}"
         }
+    )
+    
+@app.post("/api/download-report")
+async def download_report(payload: dict):
+    pdf_bytes = build_valence_report_pdf(payload)
+
+    selected = payload.get("selectedComparable") or {}
+    ticker = selected.get("ticker") or selected.get("symbol") or "company"
+
+    filename = f"valence-report-{safe_report_filename(ticker)}.pdf"
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        },
     )
