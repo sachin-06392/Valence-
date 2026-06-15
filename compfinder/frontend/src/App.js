@@ -4,6 +4,7 @@ import InputPanel from './components/InputPanel';
 import ResultsPanel from './components/ResultsPanel';
 import CompanyDetail from "./components/CompanyDetail";
 import './App.css';
+const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
 function HomePage() {
   const [results, setResults] = useState(null);
@@ -17,7 +18,7 @@ function HomePage() {
     setSubmitted(true);
 
     try {
-      const res = await fetch('https://valence-s3ho.onrender.com/api/find-comps', {
+      const res = await fetch(`${API_BASE}/api/find-comps`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),

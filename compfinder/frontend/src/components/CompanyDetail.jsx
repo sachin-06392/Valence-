@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import "./CompanyDetail.css";
+const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
 const API_BASE = "http://127.0.0.1:8000";
 
@@ -46,7 +47,7 @@ export default function CompanyDetail() {
       if (showLoading) setLoading(true);
       setError("");
 
-      const response = await fetch(`${API_BASE}/api/company/${ticker}`);
+      const response = await fetch(`${API_BASE}/api/company/${ticker}`)
 
       if (!response.ok) {
         throw new Error("Could not load company details.");
