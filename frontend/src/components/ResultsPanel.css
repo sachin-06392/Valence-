@@ -51,3 +51,50 @@
 .implied-range { font-size: 22px; font-weight: 800; color: #fff; }
 .implied-note { font-size: 12px; color: #7c3aed; }
 .no-data { color: #6b7280; font-size: 13px; padding: 1rem 0; }
+.company-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 150px;
+}
+
+.basic-details-link {
+  display: inline-block;
+  text-align: center;
+  text-decoration: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #111827;
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  transition: 0.2s ease;
+}
+
+.basic-details-link:hover {
+  background: #374151;
+  transform: translateY(-1px);
+}
+
+.report-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #5b21b6;
+  color: white;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.report-btn:hover {
+  background: #3b0764;
+  transform: translateY(-1px);
+}
+
+.report-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+}

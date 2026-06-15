@@ -7,6 +7,27 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from company_universe import COMPANY_UNIVERSE
 from financials_db import FINANCIALS_DB
+from io import BytesIO
+from datetime import datetime
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+
+from fastapi.responses import StreamingResponse
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    Image,
+    PageBreak
+)
 
 app = FastAPI(title="CompFinder API")
 app.add_middleware(
@@ -481,3 +502,341 @@ def get_company_detail(ticker: str):
         "financials": get_financials(companyfacts),
         "filings": get_recent_filings(submissions),
     }
+    
+def safe_number(value, default=0):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def fmt_money_m(value):
+    value = safe_number(value)
+    return f"${value:,.1f}M"
+
+
+def fmt_multiple(value):
+    value = safe_number(value)
+    return f"{value:.1f}x"
+
+
+def fmt_percent(value):
+    value = safe_number(value)
+    return f"{value:.1f}%"
+
+
+def get_field(obj, keys, default="—"):
+    for key in keys:
+        if isinstance(obj, dict) and key in obj and obj[key] not in [None, ""]:
+            return obj[key]
+    return default
+
+
+def make_bar_chart(title, labels, values, ylabel):
+    buffer = BytesIO()
+
+    plt.figure(figsize=(7, 3.5))
+    plt.bar(labels, values)
+    plt.title(title)
+    plt.ylabel(ylabel)
+    plt.xticks(rotation=25, ha="right")
+    plt.tight_layout()
+
+    plt.savefig(buffer, format="png", dpi=200)
+    plt.close()
+
+    buffer.seek(0)
+    return buffer
+
+
+@app.post("/api/generate-report")
+async def generate_report(payload: dict):
+    selected_company = payload.get("selectedCompany", {})
+    comps = payload.get("comps", [])
+    private_company = payload.get("privateCompany", {})
+
+    if not isinstance(comps, list):
+        comps = []
+
+    company_name = get_field(
+        selected_company,
+        ["company_name", "name", "company", "ticker"],
+        "Selected Company"
+    )
+
+    ticker = get_field(selected_company, ["ticker", "symbol"], "—")
+
+    private_name = get_field(
+        private_company,
+        ["companyName", "company_name", "name"],
+        "Private Company"
+    )
+
+    private_revenue = safe_number(
+        get_field(private_company, ["revenue", "annualRevenue", "sales"], 0)
+    )
+
+    private_ebitda = safe_number(
+        get_field(private_company, ["ebitda", "EBITDA"], 0)
+    )
+
+    buffer = BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=letter,
+        rightMargin=0.6 * inch,
+        leftMargin=0.6 * inch,
+        topMargin=0.6 * inch,
+        bottomMargin=0.6 * inch,
+    )
+
+    styles = getSampleStyleSheet()
+
+    title_style = ParagraphStyle(
+        "TitleStyle",
+        parent=styles["Title"],
+        fontSize=22,
+        leading=28,
+        textColor=colors.HexColor("#2b124c"),
+        spaceAfter=16,
+    )
+
+    section_style = ParagraphStyle(
+        "SectionStyle",
+        parent=styles["Heading1"],
+        fontSize=15,
+        leading=18,
+        textColor=colors.HexColor("#2b124c"),
+        spaceBefore=14,
+        spaceAfter=8,
+    )
+
+    body_style = ParagraphStyle(
+        "BodyStyle",
+        parent=styles["BodyText"],
+        fontSize=10,
+        leading=14,
+    )
+
+    story = []
+
+    # Cover Page
+    story.append(Paragraph("Valence Comparable Company Report", title_style))
+    story.append(Spacer(1, 0.2 * inch))
+    story.append(Paragraph(f"<b>Target Company:</b> {private_name}", body_style))
+    story.append(Paragraph(f"<b>Selected Public Comparable:</b> {company_name} ({ticker})", body_style))
+    story.append(Paragraph(f"<b>Generated:</b> {datetime.now().strftime('%B %d, %Y')}", body_style))
+    story.append(Spacer(1, 0.4 * inch))
+
+    story.append(Paragraph("Executive Summary", section_style))
+
+    summary_text = f"""
+    This report presents a comparable company analysis for {private_name} using {company_name}
+    as a selected public comparable. The analysis reviews business similarity, available financial metrics,
+    trading multiples, peer comparison, and implied valuation calculations. The goal is to provide a clean,
+    presentation-ready overview that explains both the results and the math behind the valuation.
+    """
+
+    story.append(Paragraph(summary_text, body_style))
+    story.append(Spacer(1, 0.2 * inch))
+
+    # Selected Company Overview
+    story.append(Paragraph("Selected Comparable Company Overview", section_style))
+
+    overview_data = [
+        ["Metric", "Value"],
+        ["Company", company_name],
+        ["Ticker", ticker],
+        ["Industry", get_field(selected_company, ["industry", "sector"], "—")],
+        ["Revenue", fmt_money_m(get_field(selected_company, ["revenue", "Revenue"], 0))],
+        ["EBITDA", fmt_money_m(get_field(selected_company, ["ebitda", "EBITDA"], 0))],
+        ["EBITDA Margin", fmt_percent(get_field(selected_company, ["ebitda_margin", "margin"], 0))],
+        ["Market Cap", fmt_money_m(get_field(selected_company, ["market_cap", "marketCap"], 0))],
+        ["Enterprise Value", fmt_money_m(get_field(selected_company, ["enterprise_value", "ev", "EV"], 0))],
+        ["EV / Revenue", fmt_multiple(get_field(selected_company, ["ev_revenue", "evRevenue"], 0))],
+        ["EV / EBITDA", fmt_multiple(get_field(selected_company, ["ev_ebitda", "evEbitda"], 0))],
+        ["Match Score", fmt_percent(get_field(selected_company, ["match_score", "score"], 0))],
+    ]
+
+    overview_table = Table(overview_data, colWidths=[2.2 * inch, 4.7 * inch])
+    overview_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2b124c")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f7f3ff")),
+        ("PADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    story.append(overview_table)
+    story.append(Spacer(1, 0.25 * inch))
+
+    # Peer Table
+    story.append(Paragraph("Comparable Company Set", section_style))
+
+    peer_table_data = [[
+        "Ticker",
+        "Company",
+        "Revenue",
+        "EBITDA",
+        "EV/Rev",
+        "EV/EBITDA",
+        "Match"
+    ]]
+
+    for comp in comps[:8]:
+        peer_table_data.append([
+            str(get_field(comp, ["ticker", "symbol"], "—")),
+            str(get_field(comp, ["company_name", "name", "company"], "—"))[:28],
+            fmt_money_m(get_field(comp, ["revenue", "Revenue"], 0)),
+            fmt_money_m(get_field(comp, ["ebitda", "EBITDA"], 0)),
+            fmt_multiple(get_field(comp, ["ev_revenue", "evRevenue"], 0)),
+            fmt_multiple(get_field(comp, ["ev_ebitda", "evEbitda"], 0)),
+            fmt_percent(get_field(comp, ["match_score", "score"], 0)),
+        ])
+
+    peer_table = Table(
+        peer_table_data,
+        colWidths=[
+            0.7 * inch,
+            1.7 * inch,
+            0.9 * inch,
+            0.9 * inch,
+            0.8 * inch,
+            0.9 * inch,
+            0.7 * inch,
+        ]
+    )
+
+    peer_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2b124c")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("PADDING", (0, 0), (-1, -1), 5),
+    ]))
+
+    story.append(peer_table)
+    story.append(Spacer(1, 0.25 * inch))
+
+    # Charts
+    if len(comps) > 0:
+        chart_labels = []
+        revenue_values = []
+        margin_values = []
+
+        for comp in comps[:6]:
+            label = str(get_field(comp, ["ticker", "symbol", "company_name", "name"], "—"))
+            chart_labels.append(label)
+            revenue_values.append(safe_number(get_field(comp, ["revenue", "Revenue"], 0)))
+            margin_values.append(safe_number(get_field(comp, ["ebitda_margin", "margin"], 0)))
+
+        story.append(Paragraph("Charts", section_style))
+
+        revenue_chart = make_bar_chart(
+            "Revenue Comparison",
+            chart_labels,
+            revenue_values,
+            "Revenue ($M)"
+        )
+
+        story.append(Image(revenue_chart, width=6.7 * inch, height=3.2 * inch))
+        story.append(Spacer(1, 0.2 * inch))
+
+        margin_chart = make_bar_chart(
+            "EBITDA Margin Comparison",
+            chart_labels,
+            margin_values,
+            "EBITDA Margin (%)"
+        )
+
+        story.append(Image(margin_chart, width=6.7 * inch, height=3.2 * inch))
+        story.append(Spacer(1, 0.2 * inch))
+
+    # Valuation Math
+    story.append(PageBreak())
+    story.append(Paragraph("Valuation Analysis", section_style))
+
+    ev_rev_multiple = safe_number(get_field(selected_company, ["ev_revenue", "evRevenue"], 0))
+    ev_ebitda_multiple = safe_number(get_field(selected_company, ["ev_ebitda", "evEbitda"], 0))
+
+    implied_ev_revenue = private_revenue * ev_rev_multiple if private_revenue and ev_rev_multiple else 0
+    implied_ev_ebitda = private_ebitda * ev_ebitda_multiple if private_ebitda and ev_ebitda_multiple else 0
+
+    valuation_data = [
+        ["Method", "Private Company Metric", "Selected Multiple", "Implied Enterprise Value"],
+        [
+            "EV / Revenue",
+            fmt_money_m(private_revenue),
+            fmt_multiple(ev_rev_multiple),
+            fmt_money_m(implied_ev_revenue)
+        ],
+        [
+            "EV / EBITDA",
+            fmt_money_m(private_ebitda),
+            fmt_multiple(ev_ebitda_multiple),
+            fmt_money_m(implied_ev_ebitda)
+        ],
+    ]
+
+    valuation_table = Table(valuation_data, colWidths=[1.5 * inch, 1.8 * inch, 1.5 * inch, 1.9 * inch])
+    valuation_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2b124c")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("PADDING", (0, 0), (-1, -1), 6),
+    ]))
+
+    story.append(valuation_table)
+    story.append(Spacer(1, 0.25 * inch))
+
+    story.append(Paragraph("Calculation Walkthrough", section_style))
+
+    calc_text = f"""
+    <b>EV / Revenue Method:</b><br/>
+    Private company revenue of {fmt_money_m(private_revenue)} is multiplied by the selected comparable company's
+    EV / Revenue multiple of {fmt_multiple(ev_rev_multiple)}. This implies an enterprise value of
+    {fmt_money_m(implied_ev_revenue)}.<br/><br/>
+
+    <b>EV / EBITDA Method:</b><br/>
+    Private company EBITDA of {fmt_money_m(private_ebitda)} is multiplied by the selected comparable company's
+    EV / EBITDA multiple of {fmt_multiple(ev_ebitda_multiple)}. This implies an enterprise value of
+    {fmt_money_m(implied_ev_ebitda)}.
+    """
+
+    story.append(Paragraph(calc_text, body_style))
+    story.append(Spacer(1, 0.25 * inch))
+
+    # Notes
+    story.append(Paragraph("Important Notes", section_style))
+
+    notes = """
+    This report is automatically generated by Valence based on the data available in the application.
+    Valuation outputs should be reviewed carefully and should not be treated as investment advice.
+    Comparable company analysis depends heavily on the quality of the selected peer set, the accuracy of the
+    financial data, and the assumptions provided for the private company.
+    """
+
+    story.append(Paragraph(notes, body_style))
+    story.append(Spacer(1, 0.3 * inch))
+
+    story.append(Paragraph("Generated by Valence", body_style))
+
+    doc.build(story)
+
+    buffer.seek(0)
+
+    filename = f"valence_report_{str(company_name).replace(' ', '_')}.pdf"
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        }
+    )

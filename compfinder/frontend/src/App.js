@@ -4,10 +4,12 @@ import InputPanel from './components/InputPanel';
 import ResultsPanel from './components/ResultsPanel';
 import CompanyDetail from "./components/CompanyDetail";
 import './App.css';
+
 const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
 function HomePage() {
   const [results, setResults] = useState(null);
+  const [privateCompany, setPrivateCompany] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [submitted, setSubmitted] = useState(false);
@@ -16,6 +18,9 @@ function HomePage() {
     setLoading(true);
     setError(null);
     setSubmitted(true);
+
+    // This saves the private company inputs so the PDF report can use them
+    setPrivateCompany(formData);
 
     try {
       const res = await fetch(`${API_BASE}/api/find-comps`, {
@@ -34,6 +39,7 @@ function HomePage() {
       }
     } catch (e) {
       setError('Cannot reach server. Make sure the backend is running on port 8000.');
+      setResults(null);
     } finally {
       setLoading(false);
     }
@@ -49,6 +55,7 @@ function HomePage() {
           <span className="brand">Valence</span>
           <span className="nav-pill">Beta</span>
         </div>
+
         <div className="nav-right">60+ public comps · 5 sectors</div>
       </nav>
 
@@ -61,11 +68,13 @@ function HomePage() {
 
       <div className={`layout ${submitted ? 'layout-split' : 'layout-center'}`}>
         <InputPanel onSubmit={handleSubmit} loading={loading} />
+
         {submitted && (
           <ResultsPanel
             results={results}
             loading={loading}
             error={error}
+            privateCompany={privateCompany}
           />
         )}
       </div>

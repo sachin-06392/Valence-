@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import './ResultsPanel.css';
+import ReportButton from "./ReportButton";
 
 const fmtM   = n => n != null ? `$${Number(n).toFixed(0)}M` : '—';
 const fmtB   = n => n != null ? `$${Number(n).toFixed(2)}B` : '—';
@@ -9,8 +10,9 @@ const fmtPct = n => n != null ? `${Number(n).toFixed(1)}%` : '—';
 const fmtX   = n => n != null ? `${Number(n).toFixed(1)}×` : '—';
 
 function MatchBadge({ score }) {
+  const safeScore = score != null ? Number(score).toFixed(0) : '—';
   const cls = score >= 85 ? 'match-high' : score >= 70 ? 'match-med' : 'match-low';
-  return <span className={`match-badge ${cls}`}>{score}%</span>;
+  return <span className={`match-badge ${cls}`}>{safeScore}%</span>;
 }
 
 function StatCard({ label, value, sub }) {
@@ -23,16 +25,16 @@ function StatCard({ label, value, sub }) {
   );
 }
 
-function CompsTable({ comps }) {
+function CompsTable({ comps = [], privateCompany }) {
   const [sort, setSort] = useState({ key: 'match_score', dir: -1 });
 
   const sorted = [...comps].sort((a, b) => {
-    return ((a[sort.key] ?? -Infinity) - (b[sort.key] ?? -Infinity)) * sort.dir;
+    const av = a[sort.key] ?? -Infinity;
+    const bv = b[sort.key] ?? -Infinity;
+    return (av - bv) * sort.dir;
   });
 
-  const toggleSort = k => {
-    setSort(s => ({ key: k, dir: s.key === k ? -s.dir : -1 }));
-  };
+  const toggleSort = k => setSort(s => ({ key: k, dir: s.key === k ? -s.dir : -1 }));
 
   const Th = ({ k, label }) => (
     <th onClick={() => toggleSort(k)} className={`sortable ${sort.key === k ? 'active' : ''}`}>
@@ -56,34 +58,41 @@ function CompsTable({ comps }) {
             <Th k="ev_gp" label="EV/GP" />
             <Th k="rev_growth" label="Rev Growth" />
             <Th k="gross_margin" label="Gross Margin" />
-            <th>Details</th>
           </tr>
         </thead>
 
         <tbody>
           {sorted.map((c, i) => {
-            const ticker = c.ticker || c.symbol;
+            const ticker = c.ticker || c.symbol || "company";
 
             return (
-              <tr key={ticker || c.name} className={i === 0 ? 'top-row' : ''}>
+              <tr key={ticker} className={i === 0 ? 'top-row' : ''}>
                 <td>
-                  {ticker ? (
-                    <Link to={`/company/${ticker}`} className="ticker ticker-link">
-                      {ticker}
-                    </Link>
-                  ) : (
-                    <span className="ticker">—</span>
-                  )}
+                  <Link
+                    className="ticker ticker-link"
+                    to={`/company/${encodeURIComponent(ticker)}`}
+                  >
+                    {ticker}
+                  </Link>
                 </td>
 
                 <td className="name-cell">
-                  {ticker ? (
-                    <Link to={`/company/${ticker}`} className="company-name-link">
-                      {c.name}
+                  <div className="company-name">{c.name}</div>
+
+                  <div className="company-actions-inline">
+                    <Link
+                      className="basic-details-link"
+                      to={`/company/${encodeURIComponent(ticker)}`}
+                    >
+                      Basic Details
                     </Link>
-                  ) : (
-                    c.name
-                  )}
+
+                    <ReportButton
+                      company={c}
+                      comps={comps}
+                      privateCompany={privateCompany}
+                    />
+                  </div>
                 </td>
 
                 <td className="sub-cell">{c.sub}</td>
@@ -95,16 +104,6 @@ function CompsTable({ comps }) {
                 <td className="num">{fmtX(c.ev_gp)}</td>
                 <td className="num">{fmtPct(c.rev_growth)}</td>
                 <td className="num">{fmtPct(c.gross_margin)}</td>
-
-                <td>
-                  {ticker ? (
-                    <Link to={`/company/${ticker}`} className="view-details-btn">
-                      View
-                    </Link>
-                  ) : (
-                    '—'
-                  )}
-                </td>
               </tr>
             );
           })}
@@ -125,7 +124,7 @@ function MultiplesTable({ multiples }) {
   return (
     <div className="multiples-grid">
       {rows.map(r => {
-        const m = multiples[r.key];
+        const m = multiples?.[r.key];
         if (!m) return null;
 
         return (
@@ -147,7 +146,7 @@ function MultiplesTable({ multiples }) {
   );
 }
 
-function ValuationOutput({ implied, overall_range }) {
+function ValuationOutput({ implied = {}, overall_range }) {
   const methods = Object.values(implied);
 
   if (!methods.length) {
@@ -204,14 +203,22 @@ function ValuationOutput({ implied, overall_range }) {
               {fmtM(overall_range.low)} – {fmtM(overall_range.high)}
             </div>
           </div>
-          <div className="implied-note">Based on 25th–75th percentile of peer multiples</div>
+
+          <div className="implied-note">
+            Based on 25th–75th percentile of peer multiples
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-export default function ResultsPanel({ results, loading, error }) {
+export default function ResultsPanel({
+  results,
+  loading = false,
+  error = "",
+  privateCompany = null
+}) {
   const [tab, setTab] = useState('comps');
 
   if (loading) {
@@ -234,7 +241,14 @@ export default function ResultsPanel({ results, loading, error }) {
 
   if (!results) return null;
 
-  const { comps, multiples, implied, overall_range, sector_label, comps_count } = results;
+  const {
+    comps = [],
+    multiples = {},
+    implied = {},
+    overall_range,
+    sector_label,
+    comps_count
+  } = results;
 
   const medEVRev = multiples?.ev_rev?.median;
   const medEVEBITDA = multiples?.ev_ebitda?.median;
@@ -242,9 +256,23 @@ export default function ResultsPanel({ results, loading, error }) {
   return (
     <div className="results-panel">
       <div className="stats-row">
-        <StatCard label="Comps found" value={comps_count} sub={`in ${sector_label}`} />
-        <StatCard label="Median EV/Revenue" value={medEVRev ? `${medEVRev}×` : '—'} sub="peer median" />
-        <StatCard label="Median EV/EBITDA" value={medEVEBITDA ? `${medEVEBITDA}×` : '—'} sub="peer median" />
+        <StatCard
+          label="Comps found"
+          value={comps_count}
+          sub={`in ${sector_label}`}
+        />
+
+        <StatCard
+          label="Median EV/Revenue"
+          value={medEVRev ? `${medEVRev}×` : '—'}
+          sub="peer median"
+        />
+
+        <StatCard
+          label="Median EV/EBITDA"
+          value={medEVEBITDA ? `${medEVEBITDA}×` : '—'}
+          sub="peer median"
+        />
 
         {overall_range && (
           <StatCard
@@ -272,19 +300,28 @@ export default function ResultsPanel({ results, loading, error }) {
       </div>
 
       <div className="tab-content">
-        {tab === 'comps' && <CompsTable comps={comps} />}
+        {tab === 'comps' && (
+          <CompsTable
+            comps={comps}
+            privateCompany={privateCompany}
+          />
+        )}
 
         {tab === 'multiples' && (
           <div>
             <p className="section-desc">
               Multiples across the {comps_count} closest public comparables.
             </p>
+
             <MultiplesTable multiples={multiples} />
           </div>
         )}
 
         {tab === 'valuation' && (
-          <ValuationOutput implied={implied} overall_range={overall_range} />
+          <ValuationOutput
+            implied={implied}
+            overall_range={overall_range}
+          />
         )}
       </div>
     </div>
