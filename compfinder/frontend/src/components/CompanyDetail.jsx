@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import "./CompanyDetail.css";
+import ReportButton from "./ReportButton";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+
 function money(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return "N/A";
-
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -15,7 +16,6 @@ function money(value) {
 
 function bigMoney(value) {
   if (value === null || value === undefined || Number.isNaN(value)) return "N/A";
-
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -26,48 +26,35 @@ function bigMoney(value) {
 
 function formatFact(fact) {
   if (!fact) return "N/A";
-
-  return `${bigMoney(fact.value)} • ${fact.form || "Filing"} • filed ${
-    fact.filed || "N/A"
-  }`;
+  return `${bigMoney(fact.value)} • ${fact.form || "Filing"} • filed ${fact.filed || "N/A"}`;
 }
 
 export default function CompanyDetail() {
   const { ticker } = useParams();
-
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-  async function loadCompany(showLoading = false) {
-    try {
-      if (showLoading) setLoading(true);
-      setError("");
-
-      const response = await fetch(`${API_BASE}/api/company/${ticker}`)
-
-      if (!response.ok) {
-        throw new Error("Could not load company details.");
+    async function loadCompany(showLoading = false) {
+      try {
+        if (showLoading) setLoading(true);
+        setError("");
+        const response = await fetch(`${API_BASE}/api/company/${ticker}`);
+        if (!response.ok) throw new Error("Could not load company details.");
+        const json = await response.json();
+        setData(json);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-
-      const json = await response.json();
-      setData(json);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
     }
-  }
 
-  loadCompany(true);
-
-  const intervalId = setInterval(() => {
-    loadCompany(false);
-  }, 60000);
-
-  return () => clearInterval(intervalId);
-}, [ticker]);
+    loadCompany(true);
+    const intervalId = setInterval(() => loadCompany(false), 60000);
+    return () => clearInterval(intervalId);
+  }, [ticker]);
 
   if (loading) {
     return (
@@ -92,6 +79,22 @@ export default function CompanyDetail() {
   const financials = data.financials;
   const filings = data.filings || [];
 
+  const companyForReport = {
+    ticker: company.ticker,
+    name: company.name,
+    sub: company.sicDescription || "",
+    market_cap_b: stock.marketCap ? stock.marketCap / 1e9 : null,
+    ev_b: null,
+    revenue_m: financials.revenue?.value ? financials.revenue.value / 1e6 : null,
+    ebitda_m: financials.operatingIncome?.value ? financials.operatingIncome.value / 1e6 : null,
+    ev_rev: null,
+    ev_ebitda: null,
+    ev_gp: null,
+    gross_margin: null,
+    rev_growth: null,
+    match_score: null,
+  };
+
   return (
     <div className="company-detail-page">
       <Link to="/" className="back-link">← Back to search</Link>
@@ -108,6 +111,14 @@ export default function CompanyDetail() {
           <h2>{money(stock.currentPrice)}</h2>
           <p>Previous Close: {money(stock.previousClose)}</p>
         </div>
+
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <ReportButton
+            company={companyForReport}
+            comps={[companyForReport]}
+            privateCompany={{}}
+          />
+        </div>
       </div>
 
       <h2>Stock Snapshot</h2>
@@ -117,22 +128,18 @@ export default function CompanyDetail() {
           <p>Day High</p>
           <h3>{money(stock.dayHigh)}</h3>
         </div>
-
         <div className="metric-card">
           <p>Day Low</p>
           <h3>{money(stock.dayLow)}</h3>
         </div>
-
         <div className="metric-card">
           <p>52-Week High</p>
           <h3>{money(stock.yearHigh)}</h3>
         </div>
-
         <div className="metric-card">
           <p>52-Week Low</p>
           <h3>{money(stock.yearLow)}</h3>
         </div>
-
         <div className="metric-card">
           <p>Market Cap</p>
           <h3>{bigMoney(stock.marketCap)}</h3>
@@ -146,27 +153,22 @@ export default function CompanyDetail() {
           <strong>Revenue</strong>
           <span>{formatFact(financials.revenue)}</span>
         </div>
-
         <div>
           <strong>Operating Income</strong>
           <span>{formatFact(financials.operatingIncome)}</span>
         </div>
-
         <div>
           <strong>Net Income</strong>
           <span>{formatFact(financials.netIncome)}</span>
         </div>
-
         <div>
           <strong>Total Assets</strong>
           <span>{formatFact(financials.totalAssets)}</span>
         </div>
-
         <div>
           <strong>Total Liabilities</strong>
           <span>{formatFact(financials.totalLiabilities)}</span>
         </div>
-
         <div>
           <strong>Cash</strong>
           <span>{formatFact(financials.cash)}</span>
@@ -182,15 +184,12 @@ export default function CompanyDetail() {
           <span>Report Date</span>
           <span>Document</span>
         </div>
-
         {filings.map((filing) => (
           <div className="filings-row" key={filing.accessionNumber}>
             <span>{filing.form}</span>
             <span>{filing.filingDate}</span>
             <span>{filing.reportDate || "N/A"}</span>
-            <a href={filing.url} target="_blank" rel="noreferrer">
-              Open Filing
-            </a>
+            <a href={filing.url} target="_blank" rel="noreferrer">Open Filing</a>
           </div>
         ))}
       </div>

@@ -4,23 +4,19 @@ const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
 function pick(obj, keys, fallback = null) {
   if (!obj) return fallback;
-
   for (const key of keys) {
     if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
       return obj[key];
     }
   }
-
   return fallback;
 }
 
 function toNumber(value) {
   if (value === null || value === undefined || value === "") return null;
-
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
   }
-
   if (typeof value === "string") {
     let clean = value
       .replace("$", "")
@@ -29,11 +25,8 @@ function toNumber(value) {
       .replace("x", "")
       .replace("%", "")
       .trim();
-
     if (!clean || clean === "—" || clean.toLowerCase() === "n/a") return null;
-
     let multiplier = 1;
-
     if (clean.toUpperCase().endsWith("B")) {
       multiplier = 1000;
       clean = clean.slice(0, -1);
@@ -41,11 +34,9 @@ function toNumber(value) {
       multiplier = 1;
       clean = clean.slice(0, -1);
     }
-
     const n = Number(clean);
     return Number.isFinite(n) ? n * multiplier : null;
   }
-
   return null;
 }
 
@@ -79,56 +70,38 @@ function normalizeCompany(company = {}) {
   const grossProfitM =
     toNumber(company.gross_profit) ??
     toNumber(company.grossProfit) ??
-    (
-      revenueM !== null && grossMargin !== null
-        ? revenueM * grossMargin / 100
-        : null
-    );
+    (revenueM !== null && grossMargin !== null ? revenueM * grossMargin / 100 : null);
 
   const ebitdaMargin =
     toNumber(company.ebitda_margin ?? company.ebitdaMargin) ??
-    (
-      revenueM !== null && revenueM !== 0 && ebitdaM !== null
-        ? ebitdaM / revenueM * 100
-        : null
-    );
+    (revenueM !== null && revenueM !== 0 && ebitdaM !== null ? ebitdaM / revenueM * 100 : null);
 
   return {
     ...company,
-
     company: pick(company, ["company", "name", "company_name"], "N/A"),
     name: pick(company, ["name", "company", "company_name"], "N/A"),
     ticker: pick(company, ["ticker", "symbol"], "N/A"),
     symbol: pick(company, ["symbol", "ticker"], "N/A"),
-
     industry: pick(company, ["industry", "sector", "sub"], "N/A"),
     sub: pick(company, ["sub", "industry", "sector"], "N/A"),
-
     revenue: revenueM,
     ebitda: ebitdaM,
     grossProfit: grossProfitM,
     gross_profit: grossProfitM,
-
     marketCap: marketCapM,
     market_cap: marketCapM,
-
     enterpriseValue: enterpriseValueM,
     enterprise_value: enterpriseValueM,
-
     evRevenue: toNumber(company.ev_rev ?? company.evRevenue ?? company.ev_revenue),
     ev_revenue: toNumber(company.ev_rev ?? company.evRevenue ?? company.ev_revenue),
     ev_rev: toNumber(company.ev_rev ?? company.evRevenue ?? company.ev_revenue),
-
     evEbitda: toNumber(company.ev_ebitda ?? company.evEbitda),
     ev_ebitda: toNumber(company.ev_ebitda ?? company.evEbitda),
-
     evGrossProfit: toNumber(company.ev_gp ?? company.evGrossProfit),
     ev_gp: toNumber(company.ev_gp ?? company.evGrossProfit),
-
     rev_growth: toNumber(company.rev_growth ?? company.revenue_growth),
     gross_margin: grossMargin,
     ebitda_margin: ebitdaMargin,
-
     matchScore: toNumber(company.match_score ?? company.matchScore ?? company.score),
     match_score: toNumber(company.match_score ?? company.matchScore ?? company.score),
   };
@@ -149,11 +122,7 @@ function normalizePrivateCompany(privateCompany = {}) {
 
   const margin =
     toNumber(privateCompany.ebitda_margin ?? privateCompany.ebitdaMargin ?? privateCompany.margin) ??
-    (
-      revenueM !== null && revenueM !== 0 && ebitdaM !== null
-        ? ebitdaM / revenueM * 100
-        : null
-    );
+    (revenueM !== null && revenueM !== 0 && ebitdaM !== null ? ebitdaM / revenueM * 100 : null);
 
   return {
     ...privateCompany,
@@ -175,45 +144,33 @@ export default function ReportButton({ company, comps, privateCompany }) {
       setLoading(true);
 
       const selectedCompany = normalizeCompany(company || {});
-      const normalizedComps = Array.isArray(comps)
-        ? comps.map(normalizeCompany)
-        : [];
-
+      const normalizedComps = Array.isArray(comps) ? comps.map(normalizeCompany) : [];
       const normalizedPrivateCompany = normalizePrivateCompany(privateCompany || {});
 
       const response = await fetch(`${API_BASE}/api/generate-report`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           selectedCompany,
           selectedComparable: selectedCompany,
           company: selectedCompany,
-
           comps: normalizedComps,
           comparables: normalizedComps,
-
           privateCompany: normalizedPrivateCompany,
           target: normalizedPrivateCompany,
-        })
+        }),
       });
 
-      if (!response.ok) {
-        throw new Error("Could not generate report");
-      }
+      if (!response.ok) throw new Error("Could not generate report");
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-
       const fileName = `valence-report-${selectedCompany?.ticker || selectedCompany?.symbol || "company"}.pdf`;
-
       const link = document.createElement("a");
       link.href = url;
       link.download = fileName;
       document.body.appendChild(link);
       link.click();
-
       link.remove();
       window.URL.revokeObjectURL(url);
     } catch (error) {
@@ -230,6 +187,19 @@ export default function ReportButton({ company, comps, privateCompany }) {
       className="download-report-btn report-btn"
       onClick={handleDownloadReport}
       disabled={loading}
+      style={{
+        background: '#7c3aed',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '6px',
+        padding: '5px 12px',
+        fontSize: '12px',
+        fontWeight: '500',
+        cursor: loading ? 'not-allowed' : 'pointer',
+        opacity: loading ? 0.6 : 1,
+        marginLeft: '8px',
+        transition: 'background 0.15s',
+      }}
     >
       {loading ? "Generating..." : "Download Report"}
     </button>

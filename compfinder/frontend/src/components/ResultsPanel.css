@@ -440,3 +440,19 @@
   cursor: not-allowed;
   transform: none;
 }
+
+.report-btn {
+  background: #7c3aed;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+  margin-left: 8px;
+}
+.report-btn:hover:not(:disabled) { background: #6d28d9; }
+.report-btn:active:not(:disabled) { transform: scale(0.97); }
+.report-btn:disabled { opacity: 0.5; cursor: not-allowed; }
