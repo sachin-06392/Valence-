@@ -34,117 +34,763 @@ app.add_middleware(
 )
 
 
-INPUT_SECTOR_MAP = {
-    "Enterprise SaaS / Tech": "saas_tech",
-    "Healthcare / Biotech": "healthcare",
-    "Financial Services": "financial",
-    "Consumer / Retail": "consumer",
-    "Industrials / Manufacturing": "industrials",
+# -----------------------------------------------------------------------------
+# Sector taxonomy / public comparable universe
+# -----------------------------------------------------------------------------
+# The app used to have 5 broad buckets. This version uses a more banker-style
+# software / tech taxonomy and separates direct operating comps from strategic
+# ecosystem comps.
+
+LIVE = "live"
+HISTORICAL = "historical"
+DIRECT = "direct"
+STRATEGIC = "strategic"
+
+
+def comp(ticker: str, name: str, status: str = LIVE, note: str = "", yf_symbol: Optional[str] = None):
+    return {
+        "ticker": ticker.upper(),
+        "symbol": ticker.upper(),
+        "name": name,
+        "companyName": name,
+        "status": status,
+        "note": note,
+        "yf_symbol": yf_symbol or ticker.upper(),
+    }
+
+
+SECTOR_TAXONOMY = {
+    "AI / Machine Learning": [
+        comp("PLTR", "Palantir"),
+        comp("SNOW", "Snowflake"),
+        comp("DDOG", "Datadog"),
+        comp("MDB", "MongoDB"),
+        comp("CFLT", "Confluent"),
+        comp("ESTC", "Elastic"),
+        comp("AI", "C3.ai"),
+        comp("PATH", "UiPath"),
+    ],
+    "Enterprise Software / SaaS": [
+        comp("CRM", "Salesforce"),
+        comp("NOW", "ServiceNow"),
+        comp("WDAY", "Workday"),
+        comp("TEAM", "Atlassian"),
+        comp("ADBE", "Adobe"),
+        comp("INTU", "Intuit"),
+        comp("ORCL", "Oracle"),
+        comp("SAP", "SAP"),
+        comp("MSFT", "Microsoft"),
+    ],
+    "Cloud / Data Infrastructure": [
+        comp("SNOW", "Snowflake"),
+        comp("MDB", "MongoDB"),
+        comp("NET", "Cloudflare"),
+        comp("DDOG", "Datadog"),
+        comp("CFLT", "Confluent"),
+        comp("ESTC", "Elastic"),
+        comp("FIVN", "Five9"),
+        comp("TWLO", "Twilio"),
+        comp("DOCN", "DigitalOcean"),
+    ],
+    "Cybersecurity": [
+        comp("CRWD", "CrowdStrike"),
+        comp("ZS", "Zscaler"),
+        comp("PANW", "Palo Alto Networks"),
+        comp("FTNT", "Fortinet"),
+        comp("OKTA", "Okta"),
+        comp("S", "SentinelOne"),
+        comp("CYBR", "CyberArk"),
+        comp("TENB", "Tenable"),
+        comp("QLYS", "Qualys"),
+        comp("NET", "Cloudflare"),
+    ],
+    "Developer Tools / DevOps": [
+        comp("GTLB", "GitLab"),
+        comp("TEAM", "Atlassian"),
+        comp("DDOG", "Datadog"),
+        comp("FROG", "JFrog"),
+        comp("CFLT", "Confluent"),
+        comp("MDB", "MongoDB"),
+        comp("ESTC", "Elastic"),
+        comp("DOCN", "DigitalOcean"),
+    ],
+    "Data Analytics / Observability": [
+        comp("DDOG", "Datadog"),
+        comp("PLTR", "Palantir"),
+        comp("SNOW", "Snowflake"),
+        comp("ESTC", "Elastic"),
+        comp("MDB", "MongoDB"),
+        comp("CFLT", "Confluent"),
+        comp("SPLK", "Splunk", HISTORICAL, "Historical comp only; acquired by Cisco in 2024."),
+        comp("NEWR", "New Relic", HISTORICAL, "Historical comp only; taken private in 2023."),
+    ],
+    "FinTech / Payments": [
+        comp("PYPL", "PayPal"),
+        comp("SQ", "Block"),
+        comp("FI", "Fiserv"),
+        comp("FIS", "Fidelity National Information Services"),
+        comp("GPN", "Global Payments"),
+        comp("TOST", "Toast"),
+        comp("FOUR", "Shift4 Payments"),
+        comp("ADYEN", "Adyen", yf_symbol="ADYEN.AS"),
+        comp("NU", "Nu Holdings"),
+        comp("SOFI", "SoFi"),
+    ],
+    "E-Commerce / Marketplaces": [
+        comp("SHOP", "Shopify"),
+        comp("AMZN", "Amazon"),
+        comp("ETSY", "Etsy"),
+        comp("EBAY", "eBay"),
+        comp("MELI", "MercadoLibre"),
+        comp("SE", "Sea Limited"),
+        comp("CPNG", "Coupang"),
+        comp("DASH", "DoorDash"),
+        comp("UBER", "Uber"),
+        comp("ABNB", "Airbnb"),
+    ],
+    "Consumer Internet / Digital Ads": [
+        comp("META", "Meta"),
+        comp("GOOGL", "Alphabet"),
+        comp("SNAP", "Snap"),
+        comp("PINS", "Pinterest"),
+        comp("RDDT", "Reddit"),
+        comp("MTCH", "Match Group"),
+        comp("SPOT", "Spotify"),
+        comp("NFLX", "Netflix"),
+    ],
+    "Media / Communications": [
+        comp("ZM", "Zoom"),
+        comp("TWLO", "Twilio"),
+        comp("FIVN", "Five9"),
+        comp("NFLX", "Netflix"),
+        comp("SPOT", "Spotify"),
+        comp("DIS", "Disney"),
+        comp("WBD", "Warner Bros. Discovery"),
+        comp("PARA", "Paramount"),
+    ],
+    "Semiconductors / AI Hardware": [
+        comp("NVDA", "NVIDIA"),
+        comp("AMD", "Advanced Micro Devices"),
+        comp("AVGO", "Broadcom"),
+        comp("INTC", "Intel"),
+        comp("QCOM", "Qualcomm"),
+        comp("MRVL", "Marvell"),
+        comp("ARM", "Arm Holdings"),
+        comp("TSM", "Taiwan Semiconductor"),
+        comp("MU", "Micron"),
+        comp("ASML", "ASML"),
+    ],
+    "IT Services / Consulting": [
+        comp("ACN", "Accenture"),
+        comp("IBM", "IBM"),
+        comp("CTSH", "Cognizant"),
+        comp("INFY", "Infosys"),
+        comp("WIT", "Wipro"),
+        comp("GLOB", "Globant"),
+        comp("EPAM", "EPAM Systems"),
+        comp("DXC", "DXC Technology"),
+    ],
+    "Healthcare Technology": [
+        comp("VEEV", "Veeva"),
+        comp("TDOC", "Teladoc"),
+        comp("DOCS", "Doximity"),
+        comp("HIMS", "Hims & Hers"),
+        comp("OSCR", "Oscar Health"),
+        comp("CLOV", "Clover Health"),
+        comp("HQY", "HealthEquity"),
+        comp("OMCL", "Omnicell"),
+    ],
+    "Life Sciences Software": [
+        comp("VEEV", "Veeva"),
+        comp("IQV", "IQVIA"),
+        comp("CERT", "Certara"),
+        comp("MEDP", "Medpace"),
+        comp("DHR", "Danaher"),
+        comp("TMO", "Thermo Fisher"),
+        comp("A", "Agilent"),
+    ],
+    "HR / Payroll / Workforce Software": [
+        comp("WDAY", "Workday"),
+        comp("ADP", "ADP"),
+        comp("PAYX", "Paychex"),
+        comp("PCTY", "Paylocity"),
+        comp("PAYC", "Paycom"),
+        comp("DAY", "Dayforce"),
+        comp("BILL", "BILL"),
+    ],
+    "Vertical Software": [
+        comp("VEEV", "Veeva"),
+        comp("APPF", "AppFolio"),
+        comp("LSPD", "Lightspeed"),
+        comp("TOST", "Toast"),
+        comp("MNDY", "Monday.com"),
+        comp("HUBS", "HubSpot"),
+        comp("DOCU", "DocuSign"),
+        comp("BL", "BlackLine"),
+        comp("NCNO", "nCino"),
+    ],
+    "Consumer / SMB Software": [
+        comp("INTU", "Intuit"),
+        comp("HUBS", "HubSpot"),
+        comp("BILL", "BILL"),
+        comp("DOCU", "DocuSign"),
+        comp("BOX", "Box"),
+        comp("DBX", "Dropbox"),
+        comp("ASAN", "Asana"),
+        comp("MNDY", "Monday.com"),
+        comp("SMAR", "Smartsheet", HISTORICAL, "Historical comp only; acquisition closed in 2025."),
+    ],
+    "Real Estate / PropTech": [
+        comp("Z", "Zillow"),
+        comp("OPEN", "Opendoor"),
+        comp("RDFN", "Redfin"),
+        comp("APPF", "AppFolio"),
+        comp("CSGP", "CoStar"),
+        comp("CBRE", "CBRE"),
+        comp("JLL", "JLL"),
+    ],
+    "Education Technology": [
+        comp("DUOL", "Duolingo"),
+        comp("COUR", "Coursera"),
+        comp("CHGG", "Chegg"),
+        comp("LRN", "Stride"),
+        comp("TWOU", "2U", HISTORICAL, "Distressed / historical comp only; Chapter 11 and delisting issues."),
+        comp("UDMY", "Udemy"),
+    ],
+    "Energy / Climate Tech": [
+        comp("TSLA", "Tesla"),
+        comp("ENPH", "Enphase"),
+        comp("SEDG", "SolarEdge"),
+        comp("FSLR", "First Solar"),
+        comp("BE", "Bloom Energy"),
+        comp("PLUG", "Plug Power"),
+        comp("RUN", "Sunrun"),
+        comp("NEE", "NextEra Energy"),
+    ],
 }
 
-SECTOR_LABEL_MAP = {v: k for k, v in INPUT_SECTOR_MAP.items()}
+
+SECTOR_LIST = list(SECTOR_TAXONOMY.keys())
+
+# Backward compatibility for old frontend options / old company_universe sectors.
+LEGACY_SECTOR_MAP = {
+    "Enterprise SaaS / Tech": "Enterprise Software / SaaS",
+    "Healthcare / Biotech": "Healthcare Technology",
+    "Financial Services": "FinTech / Payments",
+    "Consumer / Retail": "E-Commerce / Marketplaces",
+    "Industrials / Manufacturing": "IT Services / Consulting",
+    "saas_tech": "Enterprise Software / SaaS",
+    "healthcare": "Healthcare Technology",
+    "financial": "FinTech / Payments",
+    "consumer": "E-Commerce / Marketplaces",
+    "industrials": "IT Services / Consulting",
+}
+
+INPUT_SECTOR_MAP = {sector: sector for sector in SECTOR_LIST}
+INPUT_SECTOR_MAP.update(LEGACY_SECTOR_MAP)
+SECTOR_LABEL_MAP = {v: v for v in SECTOR_LIST}
+SECTOR_LABEL_MAP.update({k: v for k, v in LEGACY_SECTOR_MAP.items()})
+
+AI_STRATEGIC_ECOSYSTEM_SECTORS = [
+    "Semiconductors / AI Hardware",
+    "Cloud / Data Infrastructure",
+]
 
 
-def safe_number(value, default=None):
-    try:
-        if value is None:
-            return default
+SECTOR_KEYWORDS = {
+    "AI / Machine Learning": [
+        "ai",
+        "artificial intelligence",
+        "machine learning",
+        "llm",
+        "large language model",
+        "foundation model",
+        "generative ai",
+        "anthropic",
+        "openai",
+        "model",
+        "agent",
+        "copilot",
+    ],
+    "Enterprise Software / SaaS": [
+        "saas",
+        "enterprise software",
+        "subscription",
+        "workflow",
+        "crm",
+        "erp",
+        "business software",
+    ],
+    "Cloud / Data Infrastructure": [
+        "cloud",
+        "database",
+        "data infrastructure",
+        "data warehouse",
+        "api",
+        "storage",
+        "compute",
+        "infrastructure",
+    ],
+    "Cybersecurity": [
+        "security",
+        "cybersecurity",
+        "identity",
+        "endpoint",
+        "zero trust",
+        "firewall",
+        "threat",
+        "vulnerability",
+    ],
+    "Developer Tools / DevOps": [
+        "developer",
+        "devops",
+        "git",
+        "ci/cd",
+        "deployment",
+        "software development",
+        "engineering workflow",
+    ],
+    "Data Analytics / Observability": [
+        "analytics",
+        "observability",
+        "monitoring",
+        "logs",
+        "metrics",
+        "business intelligence",
+    ],
+    "FinTech / Payments": [
+        "fintech",
+        "payments",
+        "banking",
+        "lending",
+        "card",
+        "wallet",
+        "merchant",
+        "financial services",
+    ],
+    "E-Commerce / Marketplaces": [
+        "ecommerce",
+        "e-commerce",
+        "marketplace",
+        "commerce",
+        "retail",
+        "online store",
+        "delivery",
+        "booking",
+    ],
+    "Consumer Internet / Digital Ads": [
+        "consumer internet",
+        "ads",
+        "advertising",
+        "social",
+        "search",
+        "creator",
+        "streaming",
+        "dating",
+    ],
+    "Media / Communications": [
+        "media",
+        "communications",
+        "video",
+        "streaming",
+        "messaging",
+        "contact center",
+        "telephony",
+    ],
+    "Semiconductors / AI Hardware": [
+        "semiconductor",
+        "chip",
+        "gpu",
+        "ai hardware",
+        "datacenter hardware",
+        "foundry",
+        "memory",
+    ],
+    "IT Services / Consulting": [
+        "consulting",
+        "it services",
+        "systems integration",
+        "outsourcing",
+        "digital transformation",
+    ],
+    "Healthcare Technology": [
+        "healthcare",
+        "health tech",
+        "telehealth",
+        "patient",
+        "provider",
+        "insurance",
+        "clinical",
+    ],
+    "Life Sciences Software": [
+        "life sciences",
+        "pharma",
+        "clinical trial",
+        "biotech",
+        "laboratory",
+        "drug development",
+    ],
+    "HR / Payroll / Workforce Software": [
+        "hr",
+        "payroll",
+        "workforce",
+        "human capital",
+        "benefits",
+        "employee",
+    ],
+    "Vertical Software": [
+        "vertical software",
+        "industry software",
+        "restaurant software",
+        "legal software",
+        "real estate software",
+        "field service",
+    ],
+    "Consumer / SMB Software": [
+        "smb",
+        "small business",
+        "consumer software",
+        "productivity",
+        "collaboration",
+        "documents",
+        "invoicing",
+    ],
+    "Real Estate / PropTech": [
+        "real estate",
+        "property",
+        "proptech",
+        "brokerage",
+        "housing",
+        "rentals",
+    ],
+    "Education Technology": [
+        "education",
+        "edtech",
+        "learning",
+        "courses",
+        "students",
+        "tutoring",
+        "online education",
+    ],
+    "Energy / Climate Tech": [
+        "energy",
+        "climate",
+        "solar",
+        "renewable",
+        "battery",
+        "ev",
+        "clean energy",
+    ],
+}
 
-        if isinstance(value, str):
-            cleaned = (
-                value.strip()
-                .replace("$", "")
-                .replace(",", "")
-                .replace("%", "")
-                .replace("x", "")
-                .replace("X", "")
-            )
 
-            if cleaned == "" or cleaned.lower() in [
-                "n/a",
-                "na",
-                "none",
-                "null",
-                "nan",
-                "—",
-            ]:
-                return default
-
-            multiplier = 1
-            last = cleaned[-1].upper() if cleaned else ""
-
-            if last == "B":
-                multiplier = 1000
-                cleaned = cleaned[:-1]
-            elif last == "M":
-                multiplier = 1
-                cleaned = cleaned[:-1]
-            elif last == "K":
-                multiplier = 0.001
-                cleaned = cleaned[:-1]
-
-            return float(cleaned) * multiplier
-
-        num = float(value)
-
-        if np.isnan(num) or np.isinf(num):
-            return default
-
-        return num
-
-    except Exception:
-        return default
+def clean_text(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).lower().strip()
 
 
-def safe_divide(numerator, denominator):
-    numerator = safe_number(numerator)
-    denominator = safe_number(denominator)
-
-    if numerator is None or denominator is None or denominator == 0:
+def normalize_sector(sector: Optional[str]) -> Optional[str]:
+    if not sector:
         return None
 
-    return numerator / denominator
+    raw = str(sector).strip()
+
+    if raw in INPUT_SECTOR_MAP:
+        return INPUT_SECTOR_MAP[raw]
+
+    raw_lower = raw.lower()
+
+    for valid_sector in SECTOR_LIST:
+        if raw_lower == valid_sector.lower():
+            return valid_sector
+
+    for old_sector, new_sector in LEGACY_SECTOR_MAP.items():
+        if raw_lower == old_sector.lower():
+            return new_sector
+
+    for valid_sector in SECTOR_LIST:
+        simple = valid_sector.lower().replace("/", " ").replace("-", " ")
+        if raw_lower in simple or simple in raw_lower:
+            return valid_sector
+
+    return None
 
 
-def safe_report_name(value):
-    value = str(value or "company").upper()
-    value = re.sub(r"[^A-Z0-9_-]", "", value)
-    return value or "company"
+def infer_sector(priv: Dict[str, Any]) -> str:
+    explicit_sector = normalize_sector(
+        priv.get("sector")
+        or priv.get("industry")
+        or priv.get("category")
+        or priv.get("sub_sector")
+        or priv.get("subSector")
+    )
+
+    if explicit_sector:
+        return explicit_sector
+
+    searchable_text = " ".join(
+        [
+            clean_text(priv.get("company_name")),
+            clean_text(priv.get("companyName")),
+            clean_text(priv.get("name")),
+            clean_text(priv.get("business_description")),
+            clean_text(priv.get("businessDescription")),
+            clean_text(priv.get("description")),
+            clean_text(priv.get("revenue_model")),
+            clean_text(priv.get("revenueModel")),
+            clean_text(priv.get("customer_type")),
+            clean_text(priv.get("customerType")),
+        ]
+    )
+
+    scores = {}
+
+    for sector, keywords in SECTOR_KEYWORDS.items():
+        score = 0
+        for keyword in keywords:
+            if keyword in searchable_text:
+                score += 1
+        if score > 0:
+            scores[sector] = score
+
+    if not scores:
+        return "Enterprise Software / SaaS"
+
+    return max(scores.items(), key=lambda item: item[1])[0]
 
 
-def model_to_dict(model):
-    if hasattr(model, "model_dump"):
-        return model.model_dump()
-    return model.dict()
+def candidate_reason(selected_sector: str, candidate_sector: str, relationship: str, candidate: Dict[str, Any]) -> str:
+    if candidate.get("status") == HISTORICAL:
+        return candidate.get("note") or "Historical comp only."
+
+    if relationship == STRATEGIC:
+        return (
+            f"Strategic ecosystem comp for {selected_sector}; useful for AI infrastructure context, "
+            "but excluded from direct operating valuation multiples."
+        )
+
+    return f"Direct operating public comp in {candidate_sector}."
 
 
-def score_company(pub, priv, fin):
+def build_candidate_pool(selected_sector: str, include_historical: bool = False) -> List[Dict[str, Any]]:
+    pool = []
+    seen = set()
+
+    def add_sector(sector_name: str, relationship: str):
+        for order_index, candidate in enumerate(SECTOR_TAXONOMY.get(sector_name, [])):
+            if candidate.get("status") == HISTORICAL and not include_historical:
+                continue
+
+            ticker = candidate["ticker"].upper()
+            dedupe_key = (ticker, relationship)
+
+            if dedupe_key in seen:
+                continue
+
+            seen.add(dedupe_key)
+            pool.append(
+                {
+                    **candidate,
+                    "sector": sector_name,
+                    "industry": sector_name,
+                    "sub": sector_name,
+                    "subSector": sector_name,
+                    "relationship": relationship,
+                    "compType": relationship,
+                    "order_index": order_index,
+                    "reason": candidate_reason(selected_sector, sector_name, relationship, candidate),
+                }
+            )
+
+    add_sector(selected_sector, DIRECT)
+
+    # For AI companies like Anthropic, show AI infrastructure names separately.
+    # These are strategic ecosystem comps, not direct operating comps.
+    if selected_sector == "AI / Machine Learning":
+        for ecosystem_sector in AI_STRATEGIC_ECOSYSTEM_SECTORS:
+            add_sector(ecosystem_sector, STRATEGIC)
+
+    return pool
+
+
+def get_company_universe_meta(ticker: str) -> Dict[str, Any]:
+    ticker = str(ticker or "").upper()
+
+    for company in COMPANY_UNIVERSE:
+        if str(company.get("ticker", "")).upper() == ticker:
+            return company
+
+    return {}
+
+
+def normalize_financial_record(fin: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(fin, dict):
+        return {}
+
+    revenue = safe_number(fin.get("revenue"))
+    ebitda = safe_number(fin.get("ebitda"))
+    gross_profit = safe_number(fin.get("gross_profit") or fin.get("grossProfit"))
+    ev = safe_number(fin.get("ev") or fin.get("enterpriseValue"))
+    market_cap = safe_number(fin.get("market_cap") or fin.get("marketCap"))
+
+    ev_rev = safe_number(fin.get("ev_rev") or fin.get("evRevenue"))
+    ev_ebitda = safe_number(fin.get("ev_ebitda") or fin.get("evEbitda"))
+    ev_gp = safe_number(fin.get("ev_gp") or fin.get("evGrossProfit"))
+    pe_ratio = safe_number(fin.get("pe_ratio") or fin.get("peRatio"))
+
+    if ev_rev is None and ev and revenue and revenue > 0:
+        ev_rev = ev / revenue
+
+    if ev_ebitda is None and ev and ebitda and ebitda > 0:
+        ev_ebitda = ev / ebitda
+
+    if ev_gp is None and ev and gross_profit and gross_profit > 0:
+        ev_gp = ev / gross_profit
+
+    rev_growth = safe_number(fin.get("rev_growth") or fin.get("revenueGrowth"))
+    gross_margin = safe_number(fin.get("gross_margin") or fin.get("grossMargin"))
+
+    # If values came in as percentages instead of decimals, convert to decimals.
+    if rev_growth is not None and abs(rev_growth) > 2:
+        rev_growth = rev_growth / 100
+
+    if gross_margin is not None and abs(gross_margin) > 2:
+        gross_margin = gross_margin / 100
+
+    return {
+        **fin,
+        "revenue": revenue,
+        "ebitda": ebitda,
+        "gross_profit": gross_profit,
+        "ev": ev,
+        "market_cap": market_cap,
+        "ev_rev": ev_rev,
+        "ev_ebitda": ev_ebitda,
+        "ev_gp": ev_gp,
+        "pe_ratio": pe_ratio,
+        "rev_growth": rev_growth,
+        "gross_margin": gross_margin,
+        "employees": fin.get("employees"),
+    }
+
+
+@lru_cache(maxsize=512)
+def fetch_yfinance_financials(display_ticker: str, yf_symbol: Optional[str] = None) -> Dict[str, Any]:
+    symbol = yf_symbol or display_ticker
+
+    try:
+        stock = yf.Ticker(symbol)
+        info = stock.info or {}
+
+        revenue = safe_number(info.get("totalRevenue"))
+        ebitda = safe_number(info.get("ebitda"))
+        gross_profit = safe_number(info.get("grossProfits"))
+        ev = safe_number(info.get("enterpriseValue"))
+        market_cap = safe_number(info.get("marketCap"))
+
+        ev_rev = safe_number(info.get("enterpriseToRevenue"))
+        ev_ebitda = safe_number(info.get("enterpriseToEbitda"))
+        pe_ratio = safe_number(info.get("trailingPE") or info.get("forwardPE"))
+        rev_growth = safe_number(info.get("revenueGrowth"))
+        gross_margin = safe_number(info.get("grossMargins"))
+
+        ev_gp = None
+        if ev and gross_profit and gross_profit > 0:
+            ev_gp = ev / gross_profit
+
+        if ev_rev is None and ev and revenue and revenue > 0:
+            ev_rev = ev / revenue
+
+        if ev_ebitda is None and ev and ebitda and ebitda > 0:
+            ev_ebitda = ev / ebitda
+
+        if not any([revenue, ev, market_cap, ev_rev, ev_ebitda]):
+            return {}
+
+        return normalize_financial_record(
+            {
+                "revenue": revenue,
+                "ebitda": ebitda,
+                "gross_profit": gross_profit,
+                "ev": ev,
+                "market_cap": market_cap,
+                "ev_rev": ev_rev,
+                "ev_ebitda": ev_ebitda,
+                "ev_gp": ev_gp,
+                "pe_ratio": pe_ratio,
+                "rev_growth": rev_growth,
+                "gross_margin": gross_margin,
+                "employees": info.get("fullTimeEmployees"),
+            }
+        )
+
+    except Exception:
+        return {}
+
+
+def get_candidate_financials(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    ticker = candidate["ticker"].upper()
+
+    # Prefer your curated internal financials database when available.
+    fin = FINANCIALS_DB.get(ticker)
+
+    if fin:
+        return normalize_financial_record(fin)
+
+    # Fallback lets the expanded universe work even if financials_db.py does not
+    # contain every new ticker yet.
+    return fetch_yfinance_financials(ticker, candidate.get("yf_symbol"))
+
+
+def score_company(pub: Dict[str, Any], priv: Dict[str, Any], fin: Dict[str, Any]) -> float:
+    relationship = pub.get("relationship", DIRECT)
+    selected_sector = infer_sector(priv)
+
     score = 0.0
 
-    if pub["sector"] == INPUT_SECTOR_MAP.get(priv.get("sector", ""), ""):
-        score += 40
+    if relationship == DIRECT:
+        score += 45
+    else:
+        score += 22
 
-    priv_rev = (priv.get("revenue_m") or 0) * 1e6
-    pub_rev = fin.get("revenue") or 0
+    if pub.get("sector") == selected_sector:
+        score += 20
+
+    # Preserve intentional ordering within each sector.
+    score += max(0, 10 - float(pub.get("order_index") or 0))
+
+    priv_rev = safe_number(priv.get("revenue_m"), 0) * 1e6
+    pub_rev = safe_number(fin.get("revenue"), 0)
 
     if priv_rev > 0 and pub_rev > 0:
         log_dist = abs(np.log10(pub_rev / priv_rev))
-        score += max(0, 20 - log_dist * 8)
+        score += max(0, 18 - log_dist * 7)
 
-    priv_growth = (priv.get("rev_growth_pct") or 0) / 100
-    pub_growth = fin.get("rev_growth") or 0
-    diff = abs(pub_growth - priv_growth)
-    score += max(0, 20 - diff * 100)
+    priv_growth = safe_number(priv.get("rev_growth_pct"))
+    pub_growth = safe_number(fin.get("rev_growth"))
 
-    priv_gm = (priv.get("gross_margin_pct") or 0) / 100
-    pub_gm = fin.get("gross_margin") or 0
-    diff = abs(pub_gm - priv_gm)
-    score += max(0, 15 - diff * 60)
+    if priv_growth is not None and pub_growth is not None:
+        priv_growth_decimal = priv_growth / 100
+        diff = abs(pub_growth - priv_growth_decimal)
+        score += max(0, 12 - diff * 60)
 
-    if priv.get("geo") == pub.get("geo") or pub.get("geo") == "Global":
-        score += 5
+    priv_gm = safe_number(priv.get("gross_margin_pct"))
+    pub_gm = safe_number(fin.get("gross_margin"))
 
-    return round(min(score, 100), 1)
+    if priv_gm is not None and pub_gm is not None:
+        priv_gm_decimal = priv_gm / 100
+        diff = abs(pub_gm - priv_gm_decimal)
+        score += max(0, 10 - diff * 40)
+
+    if pub.get("status") == HISTORICAL:
+        score -= 25
+
+    if relationship == STRATEGIC:
+        score = min(score, 72)
+
+    return round(max(0, min(score, 99)), 1)
+
 
 
 class PrivateCompanyInput(BaseModel):
@@ -160,7 +806,8 @@ class PrivateCompanyInput(BaseModel):
     net_income_m: Optional[float] = None
     rev_growth_pct: Optional[float] = None
     employees: Optional[int] = None
-    max_comps: Optional[int] = 5
+    max_comps: Optional[int] = 8
+    include_historical_comps: Optional[bool] = False
 
     # Extra banker/SaaS fields.
     business_description: Optional[str] = ""
@@ -176,31 +823,66 @@ class PrivateCompanyInput(BaseModel):
 @app.post("/api/find-comps")
 def find_comps(inp: PrivateCompanyInput):
     priv = model_to_dict(inp)
-    target_sector = INPUT_SECTOR_MAP.get(inp.sector, "")
+    selected_sector = infer_sector(priv)
+    include_historical = bool(priv.get("include_historical_comps", False))
 
-    candidates = [c for c in COMPANY_UNIVERSE if c["sector"] == target_sector]
-
-    if not candidates:
-        candidates = COMPANY_UNIVERSE
+    candidate_pool = build_candidate_pool(
+        selected_sector=selected_sector,
+        include_historical=include_historical,
+    )
 
     scored = []
 
-    for pub in candidates:
-        fin = FINANCIALS_DB.get(pub["ticker"])
+    for pub in candidate_pool:
+        fin = get_candidate_financials(pub)
 
+        # Skip names where we have neither curated DB data nor a yfinance fallback.
         if not fin:
             continue
 
         s = score_company(pub, priv, fin)
-        scored.append({**pub, **fin, "match_score": s})
 
-    scored.sort(key=lambda x: x["match_score"], reverse=True)
-    top = scored[: inp.max_comps]
+        universe_meta = get_company_universe_meta(pub["ticker"])
+
+        scored.append(
+            {
+                **universe_meta,
+                **pub,
+                **fin,
+                "match_score": s,
+                "matchScore": s,
+                "selectedSector": selected_sector,
+            }
+        )
+
+    if not scored:
+        return {
+            "error": "No comparables found. Add these tickers to financials_db.py or make sure yfinance is available.",
+            "selectedSector": selected_sector,
+            "sector_label": selected_sector,
+            "comps": [],
+            "directComps": [],
+            "strategicComps": [],
+        }
+
+    direct_scored = [c for c in scored if c.get("relationship") == DIRECT]
+    strategic_scored = [c for c in scored if c.get("relationship") == STRATEGIC]
+
+    direct_scored.sort(key=lambda x: x["match_score"], reverse=True)
+    strategic_scored.sort(key=lambda x: x["match_score"], reverse=True)
+
+    direct_limit = max(1, int(inp.max_comps or 8))
+    strategic_limit = 5 if selected_sector == "AI / Machine Learning" else 0
+
+    top_direct = direct_scored[:direct_limit]
+    top_strategic = strategic_scored[:strategic_limit]
+    top = top_direct + top_strategic
 
     if not top:
         return {"error": "No comparables found."}
 
     def stats(vals):
+        vals = [safe_number(v) for v in vals]
         vals = [v for v in vals if v is not None and v > 0]
 
         if not vals:
@@ -215,11 +897,23 @@ def find_comps(inp: PrivateCompanyInput):
             "max": round(float(np.max(vals)), 2),
         }
 
+    # Valuation should be based on direct operating comps only.
+    # Strategic ecosystem names like NVDA / TSM are shown for context but excluded
+    # from the implied valuation range.
+    valuation_base = [
+        c
+        for c in top_direct
+        if c.get("relationship") == DIRECT and c.get("status") != HISTORICAL
+    ]
+
+    if not valuation_base:
+        valuation_base = top_direct
+
     multiples = {
-        "ev_rev": stats([c.get("ev_rev") for c in top]),
-        "ev_ebitda": stats([c.get("ev_ebitda") for c in top]),
-        "ev_gp": stats([c.get("ev_gp") for c in top]),
-        "pe": stats([c.get("pe_ratio") for c in top]),
+        "ev_rev": stats([c.get("ev_rev") for c in valuation_base]),
+        "ev_ebitda": stats([c.get("ev_ebitda") for c in valuation_base]),
+        "ev_gp": stats([c.get("ev_gp") for c in valuation_base]),
+        "pe": stats([c.get("pe_ratio") for c in valuation_base]),
     }
 
     rev_m = inp.revenue_m
@@ -276,13 +970,13 @@ def find_comps(inp: PrivateCompanyInput):
     comps_out = []
 
     for c in top:
-        revenue = c.get("revenue")
-        ebitda = c.get("ebitda")
-        ev = c.get("ev")
-        market_cap = c.get("market_cap")
+        revenue = safe_number(c.get("revenue"))
+        ebitda = safe_number(c.get("ebitda"))
+        ev = safe_number(c.get("ev"))
+        market_cap = safe_number(c.get("market_cap"))
 
         revenue_m = round(revenue / 1e6, 1) if revenue else None
-        ebitda_m = round(ebitda / 1e6, 1) if ebitda else None
+        ebitda_m_out = round(ebitda / 1e6, 1) if ebitda else None
         ev_b = round(ev / 1e9, 2) if ev else None
         market_cap_b = round(market_cap / 1e9, 2) if market_cap else None
 
@@ -302,7 +996,9 @@ def find_comps(inp: PrivateCompanyInput):
             else None
         )
 
-        sector_label = SECTOR_LABEL_MAP.get(c.get("sector"), c.get("sector"))
+        relationship = c.get("relationship", DIRECT)
+        status = c.get("status", LIVE)
+        sector_label = c.get("sector") or selected_sector
 
         comps_out.append(
             {
@@ -310,13 +1006,24 @@ def find_comps(inp: PrivateCompanyInput):
                 "symbol": c["ticker"],
                 "name": c["name"],
                 "companyName": c["name"],
-                "sub": c.get("sub", ""),
-                "industry": c.get("sub", ""),
+                "sub": c.get("sub", sector_label),
+                "industry": c.get("industry", sector_label),
                 "sector": sector_label,
-                "subSector": c.get("sub", ""),
+                "subSector": c.get("subSector", sector_label),
                 "geography": c.get("geo", "Global"),
-                "businessModel": "Public company comparable",
-                "description": c.get("description", ""),
+                "businessModel": (
+                    "Strategic AI ecosystem comparable"
+                    if relationship == STRATEGIC
+                    else "Direct public company comparable"
+                ),
+                "description": c.get("description", c.get("reason", "")),
+                "reason": c.get("reason", ""),
+                "relationship": relationship,
+                "compType": relationship,
+                "status": status,
+                "isStrategic": relationship == STRATEGIC,
+                "isHistorical": status == HISTORICAL,
+                "includedInValuation": relationship == DIRECT and status != HISTORICAL,
                 "match_score": c["match_score"],
                 "matchScore": c["match_score"],
                 "market_cap_b": market_cap_b,
@@ -325,8 +1032,8 @@ def find_comps(inp: PrivateCompanyInput):
                 "enterpriseValue": ev,
                 "revenue_m": revenue_m,
                 "revenue": revenue_m,
-                "ebitda_m": ebitda_m,
-                "ebitda": ebitda_m,
+                "ebitda_m": ebitda_m_out,
+                "ebitda": ebitda_m_out,
                 "ev_rev": c.get("ev_rev"),
                 "evRevenue": c.get("ev_rev"),
                 "ev_ebitda": c.get("ev_ebitda"),
@@ -345,15 +1052,28 @@ def find_comps(inp: PrivateCompanyInput):
             }
         )
 
+    direct_comps_out = [c for c in comps_out if c.get("relationship") == DIRECT]
+    strategic_comps_out = [c for c in comps_out if c.get("relationship") == STRATEGIC]
+
     return {
         "comps": comps_out,
+        "results": comps_out,
+        "directComps": direct_comps_out,
+        "strategicComps": strategic_comps_out,
         "multiples": multiples,
         "implied": implied,
         "overall_range": overall_range,
-        "sector_label": SECTOR_LABEL_MAP.get(target_sector, inp.sector),
-        "comps_count": len(top),
+        "sector_label": selected_sector,
+        "selectedSector": selected_sector,
+        "comps_count": len(comps_out),
+        "valuation_comps_count": len(valuation_base),
+        "allSectors": SECTOR_LIST,
+        "methodology": {
+            "directComps": "Used for valuation multiples and implied valuation range.",
+            "strategicComps": "Shown for ecosystem context only; excluded from direct valuation multiples.",
+            "historicalComps": "Excluded by default unless include_historical_comps is true.",
+        },
     }
-
 
 @app.get("/api/health")
 def health():
@@ -362,7 +1082,7 @@ def health():
 
 @app.get("/api/sectors")
 def sectors():
-    return {"sectors": list(INPUT_SECTOR_MAP.keys())}
+    return {"sectors": SECTOR_LIST}
 
 
 SEC_USER_AGENT = os.getenv(
