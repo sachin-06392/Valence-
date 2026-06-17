@@ -218,3 +218,39 @@
   transform: none !important;
   box-shadow: none !important;
 }
+
+.company-name {
+  font-weight: 700;
+  color: #f4f4f5;
+  margin-bottom: 8px;
+}
+
+.basic-details-btn {
+  display: inline-block;
+  background: #111827;
+  color: #ffffff;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.basic-details-btn:hover {
+  background: #7c3aed;
+  border-color: #7c3aed;
+  color: #ffffff;
+}
+
+.comps-table button {
+  display: none !important;
+}
+
+.comps-table .download-report-btn,
+.comps-table .report-btn,
+.comps-table .report-button {
+  display: none !important;
+}

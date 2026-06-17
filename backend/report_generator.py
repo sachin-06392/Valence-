@@ -1,635 +1,1368 @@
-from io import BytesIO
+import os
+import math
+import html
+import tempfile
 from datetime import datetime
-from statistics import median
-import re
+from statistics import mean, median
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
-from reportlab.graphics.shapes import Drawing, String
-from reportlab.graphics.charts.barcharts import VerticalBarChart
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
+    PageBreak,
+    Image,
+)
 
 
-PAGE_W, PAGE_H = letter
+# DARKER VALENCE / BANKING STYLE COLORS
+PURPLE = colors.HexColor("#2B124C")
+PURPLE_DARK = colors.HexColor("#1A0B2E")
+PURPLE_SOFT = colors.HexColor("#4C1D95")
+
+DARK = colors.HexColor("#111827")
+GRAY = colors.HexColor("#6B7280")
+LIGHT_GRAY = colors.HexColor("#F3F4F6")
+BORDER = colors.HexColor("#D1D5DB")
+WARNING_BG = colors.HexColor("#FFF3C4")
+
+CHART_PURPLE = "#2B124C"
+CHART_PURPLE_SOFT = "#4C1D95"
+CHART_DARK = "#111827"
 
 
-def pick(d, *keys, default=None):
+def safe_get(d, *keys, default=None):
     if not isinstance(d, dict):
         return default
+
     for key in keys:
-        if key in d and d[key] not in (None, ""):
-            return d[key]
+        val = d.get(key)
+        if val not in [None, "", "N/A", "NA", "-", "—"]:
+            return val
+
     return default
 
 
-def num(value):
-    if value is None or value == "":
+def to_float(value):
+    if value in [None, "", "N/A", "NA", "-", "—"]:
         return None
 
     if isinstance(value, (int, float)):
+        if math.isnan(value) or math.isinf(value):
+            return None
         return float(value)
 
     if isinstance(value, str):
-        clean = value.strip()
+        s = value.strip()
+        s = s.replace("$", "").replace(",", "").replace("x", "").replace("X", "")
+        s = s.replace("%", "").strip()
 
-        if clean in ("—", "-", "N/A", "NA", "n/a", "na"):
-            return None
-
-        clean = (
-            clean.replace("$", "")
-            .replace(",", "")
-            .replace("x", "")
-            .replace("X", "")
-            .replace("%", "")
-            .strip()
-        )
-
-        multiplier = 1.0
-
-        if clean.upper().endswith("B"):
-            multiplier = 1000.0
-            clean = clean[:-1]
-        elif clean.upper().endswith("M"):
-            multiplier = 1.0
-            clean = clean[:-1]
+        multiplier = 1
+        if s.lower().endswith("b"):
+            multiplier = 1000
+            s = s[:-1]
+        elif s.lower().endswith("m"):
+            multiplier = 1
+            s = s[:-1]
 
         try:
-            return float(clean) * multiplier
+            return float(s) * multiplier
         except ValueError:
             return None
 
     return None
 
 
+def normalize_money_to_millions(value):
+    n = to_float(value)
+    if n is None:
+        return None
+
+    if abs(n) > 100000:
+        return n / 1_000_000
+
+    return n
+
+
+def normalize_percent(value):
+    n = to_float(value)
+    if n is None:
+        return None
+
+    if abs(n) <= 1:
+        return n * 100
+
+    return n
+
+
 def fmt_m(value):
-    n = num(value)
+    n = normalize_money_to_millions(value)
     if n is None:
         return "N/A"
-    if abs(n) >= 1000:
-        return f"${n / 1000:,.2f}B"
-    return f"${n:,.1f}M"
+    return f"${n:,.0f}M"
 
 
-def fmt_pct(value):
-    n = num(value)
+def fmt_b(value_m):
+    n = normalize_money_to_millions(value_m)
     if n is None:
         return "N/A"
-    return f"{n:.1f}%"
+    return f"${n / 1000:,.2f}B"
 
 
 def fmt_x(value):
-    n = num(value)
+    n = to_float(value)
     if n is None:
         return "N/A"
     return f"{n:.1f}x"
 
 
-def safe_div(a, b):
-    a = num(a)
-    b = num(b)
+def fmt_pct(value):
+    n = normalize_percent(value)
+    if n is None:
+        return "N/A"
+    return f"{n:.1f}%"
 
-    if a is None or b is None or b == 0:
+
+def fmt_plain(value):
+    if value in [None, "", "N/A", "NA"]:
+        return "Not provided"
+    return str(value)
+
+
+def company_name(c):
+    return safe_get(c, "companyName", "name", "company", "Company", default="Company")
+
+
+def ticker(c):
+    return safe_get(c, "ticker", "symbol", "Ticker", "Symbol", default="N/A")
+
+
+def revenue_m(c):
+    return normalize_money_to_millions(
+        safe_get(
+            c,
+            "revenue",
+            "revenue_m",
+            "revenueM",
+            "totalRevenue",
+            "total_revenue",
+            "sales",
+            "Revenue",
+        )
+    )
+
+
+def enterprise_value_m(c):
+    return normalize_money_to_millions(
+        safe_get(
+            c,
+            "enterpriseValue",
+            "enterprise_value",
+            "ev",
+            "EV",
+            "marketEnterpriseValue",
+        )
+    )
+
+
+def ebitda_m(c):
+    direct = normalize_money_to_millions(
+        safe_get(c, "ebitda", "EBITDA", "adjustedEbitda", "adjusted_ebitda")
+    )
+
+    if direct is not None:
+        return direct
+
+    margin = ebitda_margin_pct(c)
+    rev = revenue_m(c)
+
+    if margin is not None and rev is not None:
+        return rev * margin / 100
+
+    return None
+
+
+def ev_revenue(c):
+    direct = to_float(
+        safe_get(c, "evRevenue", "ev_revenue", "evToRevenue", "EVRevenue", "ev_rev")
+    )
+
+    if direct is not None:
+        return direct
+
+    ev = enterprise_value_m(c)
+    rev = revenue_m(c)
+
+    if ev is not None and rev not in [None, 0]:
+        return ev / rev
+
+    return None
+
+
+def ev_ebitda(c):
+    direct = to_float(
+        safe_get(c, "evEbitda", "ev_ebitda", "evToEbitda", "EVEBITDA")
+    )
+
+    if direct is not None:
+        return direct
+
+    ev = enterprise_value_m(c)
+    ebitda = ebitda_m(c)
+
+    if ev is not None and ebitda not in [None, 0]:
+        return ev / ebitda
+
+    return None
+
+
+def ebitda_margin_pct(c):
+    return normalize_percent(
+        safe_get(c, "ebitdaMargin", "ebitda_margin", "EBITDAMargin")
+    )
+
+
+def gross_margin_pct(c):
+    return normalize_percent(
+        safe_get(c, "grossMargin", "gross_margin", "GrossMargin")
+    )
+
+
+def revenue_growth_pct(c):
+    return normalize_percent(
+        safe_get(
+            c,
+            "revenueGrowth",
+            "revenue_growth",
+            "growth",
+            "RevenueGrowth",
+            "yoyGrowth",
+        )
+    )
+
+
+def fcf_margin_pct(c):
+    return normalize_percent(
+        safe_get(c, "fcfMargin", "freeCashFlowMargin", "free_cash_flow_margin")
+    )
+
+
+def rule_of_40(c):
+    direct = normalize_percent(safe_get(c, "ruleOf40", "rule_of_40"))
+
+    if direct is not None:
+        return direct
+
+    growth = revenue_growth_pct(c)
+    fcf = fcf_margin_pct(c)
+
+    if growth is not None and fcf is not None:
+        return growth + fcf
+
+    return None
+
+
+def valid_number(x):
+    return (
+        x is not None
+        and isinstance(x, (int, float))
+        and not math.isnan(x)
+        and not math.isinf(x)
+    )
+
+
+def percentile(values, pct):
+    clean = sorted([float(v) for v in values if valid_number(v)])
+
+    if not clean:
         return None
 
-    return a / b
+    if len(clean) == 1:
+        return clean[0]
+
+    k = (len(clean) - 1) * pct / 100
+    f = math.floor(k)
+    c = math.ceil(k)
+
+    if f == c:
+        return clean[int(k)]
+
+    return clean[f] * (c - k) + clean[c] * (k - f)
 
 
-def safe_report_filename(text):
-    text = str(text or "report")
-    text = re.sub(r"[^A-Za-z0-9_-]+", "-", text).strip("-")
-    return text or "report"
+def peer_stats(values):
+    clean = [float(v) for v in values if valid_number(v)]
 
-
-def normalize_company(row):
-    row = row or {}
-
-    revenue = num(pick(row, "revenue", "Revenue", "totalRevenue", "sales"))
-    ebitda = num(pick(row, "ebitda", "EBITDA"))
-
-    ebitda_margin = num(pick(row, "ebitda_margin", "ebitdaMargin", "margin"))
-
-    if ebitda_margin is None and revenue not in (None, 0) and ebitda is not None:
-        ebitda_margin = ebitda / revenue * 100
-
-    enterprise_value = num(
-        pick(row, "enterprise_value", "enterpriseValue", "ev", "EV")
-    )
-
-    market_cap = num(
-        pick(row, "market_cap", "marketCap", "market_capitalization")
-    )
-
-    ev_revenue = num(
-        pick(row, "ev_revenue", "evRevenue", "ev_rev", "evToRevenue", "EV/Revenue")
-    )
-
-    ev_ebitda = num(
-        pick(row, "ev_ebitda", "evEbitda", "ev_ebitda", "evToEbitda", "EV/EBITDA")
-    )
-
-    if ev_revenue is None:
-        ev_revenue = safe_div(enterprise_value, revenue)
-
-    if ev_ebitda is None:
-        ev_ebitda = safe_div(enterprise_value, ebitda)
+    if not clean:
+        return {
+            "mean": None,
+            "median": None,
+            "min": None,
+            "max": None,
+            "p25": None,
+            "p75": None,
+        }
 
     return {
-        "company": pick(row, "company", "name", "company_name", "Company", default="N/A"),
-        "ticker": pick(row, "ticker", "symbol", "Ticker", default="N/A"),
-        "industry": pick(row, "industry", "sector", "Industry", default="N/A"),
-        "revenue": revenue,
-        "ebitda": ebitda,
-        "ebitda_margin": ebitda_margin,
-        "market_cap": market_cap,
-        "enterprise_value": enterprise_value,
-        "ev_revenue": ev_revenue,
-        "ev_ebitda": ev_ebitda,
-        "match_score": num(pick(row, "match_score", "matchScore", "score", "match")),
+        "mean": mean(clean),
+        "median": median(clean),
+        "min": min(clean),
+        "max": max(clean),
+        "p25": percentile(clean, 25),
+        "p75": percentile(clean, 75),
     }
 
 
-def styles():
-    s = getSampleStyleSheet()
+def esc(text):
+    return html.escape(str(text))
 
-    s.add(
-        ParagraphStyle(
-            name="TitlePurple",
-            parent=s["Title"],
+
+def make_para(text, style):
+    return Paragraph(esc(text), style)
+
+
+def make_bullet(text, style):
+    return Paragraph(f"• {esc(text)}", style)
+
+
+def get_styles():
+    base = getSampleStyleSheet()
+
+    styles = {
+        "title": ParagraphStyle(
+            "ValenceTitle",
+            parent=base["Title"],
             fontName="Helvetica-Bold",
-            fontSize=22,
-            leading=26,
-            textColor=colors.HexColor("#2E1065"),
+            fontSize=24,
+            leading=28,
+            textColor=DARK,
             spaceAfter=10,
-        )
-    )
-
-    s.add(
-        ParagraphStyle(
-            name="Section",
-            parent=s["Heading2"],
+        ),
+        "subtitle": ParagraphStyle(
+            "ValenceSubtitle",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=10,
+            leading=14,
+            textColor=GRAY,
+            spaceAfter=14,
+        ),
+        "h1": ParagraphStyle(
+            "ValenceH1",
+            parent=base["Heading1"],
             fontName="Helvetica-Bold",
-            fontSize=13,
-            leading=16,
-            textColor=colors.HexColor("#2E1065"),
-            spaceBefore=12,
-            spaceAfter=7,
-        )
-    )
-
-    s.add(
-        ParagraphStyle(
-            name="BodySmall",
-            parent=s["BodyText"],
+            fontSize=15,
+            leading=18,
+            textColor=PURPLE,
+            spaceBefore=8,
+            spaceAfter=8,
+        ),
+        "h2": ParagraphStyle(
+            "ValenceH2",
+            parent=base["Heading2"],
+            fontName="Helvetica-Bold",
+            fontSize=12,
+            leading=15,
+            textColor=DARK,
+            spaceBefore=6,
+            spaceAfter=6,
+        ),
+        "body": ParagraphStyle(
+            "ValenceBody",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=9.2,
+            leading=13,
+            textColor=DARK,
+            spaceAfter=6,
+        ),
+        "small": ParagraphStyle(
+            "ValenceSmall",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7.8,
+            leading=10,
+            textColor=DARK,
+        ),
+        "table_header": ParagraphStyle(
+            "ValenceTableHeader",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.8,
+            leading=10,
+            textColor=colors.white,
+        ),
+        "table_cell": ParagraphStyle(
+            "ValenceTableCell",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7.8,
+            leading=10,
+            textColor=DARK,
+        ),
+        "warning": ParagraphStyle(
+            "ValenceWarning",
+            parent=base["BodyText"],
+            fontName="Helvetica",
             fontSize=8.5,
             leading=11,
-        )
-    )
+            textColor=DARK,
+        ),
+    }
 
-    s.add(
-        ParagraphStyle(
-            name="BodyClean",
-            parent=s["BodyText"],
-            fontSize=9.5,
-            leading=13,
-        )
-    )
-
-    return s
+    return styles
 
 
-def make_table(data, col_widths=None, header=True):
-    t = Table(data, colWidths=col_widths, hAlign="LEFT", repeatRows=1 if header else 0)
+def build_table(data, col_widths=None, font_size=8, header=True):
+    table_data = []
+    styles = get_styles()
+
+    for row_idx, row in enumerate(data):
+        formatted_row = []
+
+        for cell in row:
+            if header and row_idx == 0:
+                formatted_row.append(Paragraph(esc(cell), styles["table_header"]))
+            else:
+                formatted_row.append(Paragraph(esc(cell), styles["table_cell"]))
+
+        table_data.append(formatted_row)
+
+    table = Table(table_data, colWidths=col_widths, repeatRows=1 if header else 0)
 
     table_style = [
-        ("FONT", (0, 0), (-1, -1), "Helvetica", 8),
+        ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#D1D5DB")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9FAFB")]),
         ("LEFTPADDING", (0, 0), (-1, -1), 5),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), font_size),
     ]
 
     if header:
-        table_style += [
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2E1065")),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8),
-        ]
+        table_style.extend(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), PURPLE),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ]
+        )
 
-    t.setStyle(TableStyle(table_style))
-    return t
+    table.setStyle(TableStyle(table_style))
+    return table
 
 
-def chart(title, labels, values, y_label):
-    clean = []
+def get_business_model_text(c):
+    return str(
+        safe_get(
+            c,
+            "businessModel",
+            "business_model",
+            "revenueModel",
+            "revenue_model",
+            "model",
+            default="",
+        )
+    ).lower()
+
+
+def get_description_text(c):
+    return str(
+        safe_get(
+            c,
+            "description",
+            "businessDescription",
+            "business_description",
+            default="",
+        )
+    ).lower()
+
+
+def calculate_match_breakdown(target, selected):
+    target_sector = str(
+        safe_get(
+            target,
+            "sector",
+            "industry",
+            "subSector",
+            "sub_sector",
+            default="",
+        )
+    ).lower()
+
+    comp_sector = str(
+        safe_get(
+            selected,
+            "sector",
+            "industry",
+            "subSector",
+            "sub_sector",
+            default="",
+        )
+    ).lower()
+
+    target_rev = revenue_m(target)
+    comp_rev = revenue_m(selected)
+
+    target_margin = ebitda_margin_pct(target)
+    comp_margin = ebitda_margin_pct(selected)
+
+    target_growth = revenue_growth_pct(target)
+    comp_growth = revenue_growth_pct(selected)
+
+    target_model = get_business_model_text(target) + " " + get_description_text(target)
+    comp_model = get_business_model_text(selected) + " " + get_description_text(selected)
+
+    breakdown = []
+
+    if target_sector and comp_sector:
+        if target_sector == comp_sector:
+            score = 100
+            comment = "Target and selected comp share the same sector / industry label."
+        elif any(word in comp_sector for word in target_sector.split() if len(word) > 3):
+            score = 80
+            comment = "Target and selected comp have overlapping industry language."
+        else:
+            score = 55
+            comment = "Industry match is partial based on available labels."
+    else:
+        score = 65
+        comment = "Industry detail is missing, so score uses a neutral assumption."
+
+    breakdown.append(["Industry similarity", "30%", f"{score:.0f}%", comment])
+
+    if target_rev and comp_rev:
+        ratio = max(target_rev, comp_rev) / max(min(target_rev, comp_rev), 1)
+
+        if ratio <= 1.5:
+            score = 100
+        elif ratio <= 2.5:
+            score = 85
+        elif ratio <= 4.0:
+            score = 70
+        else:
+            score = 50
+
+        comment = (
+            f"Selected comp revenue of {fmt_m(comp_rev)} compared with "
+            f"target revenue of {fmt_m(target_rev)}."
+        )
+    else:
+        score = 60
+        comment = "Revenue scale comparison is limited because one revenue figure is missing."
+
+    breakdown.append(["Revenue scale", "20%", f"{score:.0f}%", comment])
+
+    if target_margin is not None and comp_margin is not None:
+        diff = abs(target_margin - comp_margin)
+
+        if diff <= 5:
+            score = 100
+        elif diff <= 10:
+            score = 85
+        elif diff <= 20:
+            score = 65
+        else:
+            score = 45
+
+        comment = (
+            f"Target EBITDA margin is {fmt_pct(target_margin)} vs. "
+            f"selected comp at {fmt_pct(comp_margin)}."
+        )
+    else:
+        score = 55
+        comment = "Margin comparison is limited because target or comp EBITDA margin is missing."
+
+    breakdown.append(["Margin similarity", "15%", f"{score:.0f}%", comment])
+
+    if target_growth is not None and comp_growth is not None:
+        diff = abs(target_growth - comp_growth)
+
+        if diff <= 5:
+            score = 100
+        elif diff <= 10:
+            score = 85
+        elif diff <= 20:
+            score = 65
+        else:
+            score = 45
+
+        comment = (
+            f"Target revenue growth is {fmt_pct(target_growth)} vs. "
+            f"selected comp at {fmt_pct(comp_growth)}."
+        )
+    else:
+        score = 55
+        comment = "Growth comparison is limited because revenue growth data is missing."
+
+    breakdown.append(["Growth similarity", "20%", f"{score:.0f}%", comment])
+
+    keywords = ["saas", "subscription", "cloud", "software", "collaboration", "storage"]
+    target_hits = [k for k in keywords if k in target_model]
+    comp_hits = [k for k in keywords if k in comp_model]
+
+    if target_hits and comp_hits:
+        overlap = set(target_hits).intersection(set(comp_hits))
+
+        if overlap:
+            score = 100
+            comment = f"Both businesses reference {', '.join(sorted(overlap))}."
+        else:
+            score = 75
+            comment = "Both businesses appear software/subscription-oriented, but exact overlap is limited."
+    else:
+        score = 65
+        comment = "Business model detail is limited, so score uses available description fields."
+
+    breakdown.append(["Business model similarity", "15%", f"{score:.0f}%", comment])
+
+    return breakdown
+
+
+def selected_comp_rationale(target, selected, comps):
+    reasons = []
+
+    selected_ticker = ticker(selected)
+    selected_name = company_name(selected)
+
+    match_score = to_float(safe_get(selected, "matchScore", "match_score", "score"))
+
+    if match_score is not None:
+        reasons.append(
+            f"{selected_name} ({selected_ticker}) has the highest or strongest "
+            f"available match score at {match_score:.1f}%."
+        )
+
+    target_rev = revenue_m(target)
+    comp_rev = revenue_m(selected)
+
+    if target_rev is not None and comp_rev is not None:
+        reasons.append(
+            f"Revenue scale is comparable: target revenue of {fmt_m(target_rev)} "
+            f"versus {selected_name} revenue of {fmt_m(comp_rev)}."
+        )
+
+    target_sector = safe_get(target, "sector", "industry", "subSector", "sub_sector")
+    comp_sector = safe_get(selected, "sector", "industry", "subSector", "sub_sector")
+
+    if target_sector or comp_sector:
+        reasons.append(
+            f"Business exposure is directionally similar based on sector / industry labels: "
+            f"target = {fmt_plain(target_sector)}, selected comp = {fmt_plain(comp_sector)}."
+        )
+
+    comp_desc = get_description_text(selected)
+
+    if any(
+        word in comp_desc
+        for word in ["saas", "subscription", "cloud", "collaboration", "storage", "software"]
+    ):
+        reasons.append(
+            f"{selected_name} has relevant software, cloud, collaboration, storage, "
+            f"or subscription exposure based on available description fields."
+        )
+
+    if ev_revenue(selected) is not None:
+        reasons.append(
+            f"{selected_name} provides a usable public-market EV/Revenue multiple of "
+            f"{fmt_x(ev_revenue(selected))}, which can be applied to the target revenue base."
+        )
+
+    if not reasons:
+        reasons.append(
+            "Selected comp appears to be the closest available public comparable based on "
+            "the current matching output, but more target detail is needed to fully support "
+            "the selection."
+        )
+
+    return reasons[:5]
+
+
+def data_quality_flags(target, selected, comps):
+    flags = []
+
+    if ebitda_m(target) is None:
+        flags.append(
+            "Target EBITDA was not provided, so EV/EBITDA valuation is hidden instead "
+            "of showing an unhelpful N/A output."
+        )
+
+    if revenue_growth_pct(target) is None:
+        flags.append(
+            "Target revenue growth was not provided. For SaaS businesses, growth is a "
+            "major driver of valuation multiples."
+        )
+
+    if gross_margin_pct(target) is None:
+        flags.append(
+            "Target gross margin was not provided. SaaS valuation should include gross "
+            "margin where available."
+        )
+
+    all_comps = comps or []
+
+    for c in all_comps:
+        name = company_name(c)
+        t = ticker(c)
+        margin = ebitda_margin_pct(c)
+        multiple = ev_ebitda(c)
+
+        if margin is not None and margin > 60:
+            flags.append(
+                f"{name} ({t}) shows EBITDA margin of {fmt_pct(margin)}, which appears "
+                f"unusually high and should be source-checked. It may be gross margin or "
+                f"an adjusted metric."
+            )
+
+        if multiple is not None and multiple > 50:
+            flags.append(
+                f"{name} ({t}) shows EV/EBITDA of {fmt_x(multiple)}, which appears to be "
+                f"an outlier and may distort peer statistics."
+            )
+
+    if not flags:
+        flags.append("No major data quality warnings were detected from the available fields.")
+
+    return flags
+
+
+def create_bar_chart(labels, values, title, y_label, output_path, suffix="x"):
+    clean_labels = []
+    clean_values = []
 
     for label, value in zip(labels, values):
-        value = num(value)
-        if value is not None:
-            clean.append((str(label), value))
+        if valid_number(value):
+            clean_labels.append(label)
+            clean_values.append(value)
+
+    if not clean_values:
+        return None
+
+    plt.figure(figsize=(7.2, 3.2))
+
+    bars = plt.bar(
+        clean_labels,
+        clean_values,
+        color=CHART_PURPLE,
+        width=0.58,
+    )
+
+    plt.title(title, fontsize=12, fontweight="bold", color=CHART_DARK)
+    plt.ylabel(y_label, fontsize=9)
+    plt.xticks(rotation=25, ha="right", fontsize=8)
+    plt.yticks(fontsize=8)
+    plt.grid(axis="y", alpha=0.22)
+
+    ax = plt.gca()
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#9CA3AF")
+    ax.spines["bottom"].set_color("#9CA3AF")
+
+    max_val = max(clean_values)
+
+    for bar, value in zip(bars, clean_values):
+        if suffix == "%":
+            label = f"{value:.1f}%"
+        elif suffix == "$B":
+            label = f"${value:.1f}B"
+        else:
+            label = f"{value:.1f}x"
+
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + max_val * 0.025,
+            label,
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color=CHART_DARK,
+        )
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=180)
+    plt.close()
+
+    return output_path
+
+
+def create_football_field_chart(ranges, output_path):
+    clean = []
+
+    for label, low, high, midpoint in ranges:
+        if valid_number(low) and valid_number(high) and high >= low:
+            clean.append((label, low, high, midpoint))
 
     if not clean:
-        s = styles()
-        return Paragraph(f"<b>{title}</b><br/>No usable data available for this chart.", s["BodySmall"])
+        return None
 
-    labels, values = zip(*clean)
+    plt.figure(figsize=(7.2, 3.4))
+    y_positions = list(range(len(clean)))
 
-    drawing = Drawing(500, 235)
-
-    bar = VerticalBarChart()
-    bar.x = 55
-    bar.y = 45
-    bar.height = 135
-    bar.width = 385
-    bar.data = [list(values)]
-    bar.categoryAxis.categoryNames = list(labels)
-
-    bar.categoryAxis.labels.boxAnchor = "ne"
-    bar.categoryAxis.labels.dx = 8
-    bar.categoryAxis.labels.dy = -2
-    bar.categoryAxis.labels.angle = 35
-
-    bar.valueAxis.valueMin = 0
-    max_value = max(values)
-    bar.valueAxis.valueMax = max_value * 1.25 if max_value > 0 else 1
-    bar.valueAxis.valueStep = bar.valueAxis.valueMax / 4
-
-    bar.bars[0].fillColor = colors.HexColor("#4C1D95")
-    bar.bars[0].strokeColor = colors.HexColor("#4C1D95")
-
-    drawing.add(bar)
-
-    drawing.add(
-        String(
-            180,
-            210,
-            title,
-            fontSize=12,
-            fontName="Helvetica-Bold",
-            fillColor=colors.HexColor("#111827"),
+    for i, (label, low, high, midpoint) in enumerate(clean):
+        plt.barh(
+            i,
+            high - low,
+            left=low,
+            height=0.35,
+            color=CHART_PURPLE,
+            alpha=0.92,
         )
-    )
 
-    drawing.add(
-        String(
-            0,
-            105,
-            y_label,
-            fontSize=8,
-            fillColor=colors.HexColor("#374151"),
-            transform=[0, 1, -1, 0, 20, 15],
+        if valid_number(midpoint):
+            plt.scatter(
+                midpoint,
+                i,
+                s=34,
+                zorder=3,
+                color=CHART_PURPLE_SOFT,
+                edgecolor="white",
+                linewidth=0.6,
+            )
+
+        plt.text(
+            high + 0.03,
+            i,
+            f"${low:.2f}B - ${high:.2f}B",
+            va="center",
+            fontsize=8,
+            color=CHART_DARK,
         )
-    )
 
-    return drawing
+    plt.yticks(y_positions, [x[0] for x in clean], fontsize=8)
+    plt.xlabel("Implied Enterprise Value ($B)", fontsize=9)
+    plt.title("Valuation Football Field", fontsize=12, fontweight="bold", color=CHART_DARK)
+    plt.grid(axis="x", alpha=0.22)
+
+    ax = plt.gca()
+    ax.spines["top"].set_color("#9CA3AF")
+    ax.spines["right"].set_color("#9CA3AF")
+    ax.spines["left"].set_color("#9CA3AF")
+    ax.spines["bottom"].set_color("#9CA3AF")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=180)
+    plt.close()
+
+    return output_path
 
 
-def add_page_number(canvas, doc):
+def footer(canvas, doc, generated_at):
     canvas.saveState()
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColor(colors.HexColor("#6B7280"))
-    canvas.drawString(0.55 * inch, 0.35 * inch, "Generated by Valence")
-    canvas.drawRightString(PAGE_W - 0.55 * inch, 0.35 * inch, f"Page {doc.page}")
+    canvas.setFont("Helvetica", 7.5)
+    canvas.setFillColor(GRAY)
+    canvas.drawString(
+        0.55 * inch,
+        0.35 * inch,
+        f"Valence Banker Report v2 | Generated {generated_at}",
+    )
+    canvas.drawRightString(7.95 * inch, 0.35 * inch, f"Page {doc.page}")
     canvas.restoreState()
 
 
-def build_valence_report_pdf(payload: dict) -> bytes:
-    payload = payload or {}
+def generate_banker_report(selected_company, comps, private_company, output_path):
+    styles = get_styles()
 
-    comps_raw = pick(payload, "comparables", "comps", "results", "matches", default=[])
+    selected = selected_company or {}
+    target = private_company or {}
+    peer_comps = comps or []
 
-    if isinstance(comps_raw, dict):
-        comps_raw = pick(comps_raw, "comparables", "results", "matches", default=[])
+    selected_ticker = ticker(selected)
 
-    comps = [normalize_company(row) for row in comps_raw if isinstance(row, dict)]
+    existing_tickers = {ticker(c) for c in peer_comps}
 
-    selected_raw = pick(
-        payload,
-        "selectedComparable",
-        "selected",
-        "selected_comparable",
-        default=None,
-    )
+    if selected and selected_ticker not in existing_tickers:
+        peer_comps = [selected] + peer_comps
 
-    if isinstance(selected_raw, dict):
-        selected = normalize_company(selected_raw)
-    elif comps:
-        selected = comps[0]
-    else:
-        selected = normalize_company({})
+    generated_at = datetime.now().strftime("%b %d, %Y %I:%M %p")
 
-    target_raw = pick(payload, "target", "privateCompany", "inputs", default={})
-
-    if not isinstance(target_raw, dict):
-        target_raw = {}
-
-    target_name = pick(
-        target_raw,
+    target_name = safe_get(
+        target,
+        "companyName",
         "name",
-        "company",
-        "targetCompany",
-        default=pick(payload, "targetCompany", "companyName", default="Private Company"),
+        "targetName",
+        "privateCompanyName",
+        default="Private Company",
     )
 
-    target_industry = pick(
-        target_raw,
-        "industry",
-        "sector",
-        default=pick(payload, "industry", default="N/A"),
-    )
+    selected_name = company_name(selected)
 
-    target_revenue = num(
-        pick(
-            target_raw,
-            "revenue",
-            "targetRevenue",
-            "Revenue",
-            default=pick(payload, "revenue", "targetRevenue", default=None),
-        )
-    )
+    target_rev = revenue_m(target)
+    target_ebitda = ebitda_m(target)
 
-    target_ebitda = num(
-        pick(
-            target_raw,
-            "ebitda",
-            "targetEbitda",
-            "EBITDA",
-            default=pick(payload, "ebitda", "targetEbitda", default=None),
-        )
-    )
-
-    target_margin = num(
-        pick(
-            target_raw,
-            "ebitda_margin",
-            "ebitdaMargin",
-            "margin",
-            default=pick(payload, "ebitdaMargin", default=None),
-        )
-    )
-
-    if target_ebitda is None and target_revenue not in (None, 0) and target_margin is not None:
-        target_ebitda = target_revenue * target_margin / 100
-
-    if target_margin is None and target_revenue not in (None, 0) and target_ebitda is not None:
-        target_margin = target_ebitda / target_revenue * 100
-
-    valid_ev_rev = [
-        c["ev_revenue"]
-        for c in comps
-        if c["ev_revenue"] is not None and c["ev_revenue"] > 0
+    ev_rev_values = [
+        ev_revenue(c)
+        for c in peer_comps
+        if valid_number(ev_revenue(c)) and ev_revenue(c) > 0
     ]
 
-    valid_ev_ebitda = [
-        c["ev_ebitda"]
-        for c in comps
-        if c["ev_ebitda"] is not None and c["ev_ebitda"] > 0
+    ev_ebitda_values = [
+        ev_ebitda(c)
+        for c in peer_comps
+        if valid_number(ev_ebitda(c)) and ev_ebitda(c) > 0 and ev_ebitda(c) < 100
     ]
 
-    median_ev_rev = median(valid_ev_rev) if valid_ev_rev else None
-    median_ev_ebitda = median(valid_ev_ebitda) if valid_ev_ebitda else None
+    ev_rev_stats = peer_stats(ev_rev_values)
+    ev_ebitda_stats = peer_stats(ev_ebitda_values)
 
-    selected_ev_rev_value = (
-        target_revenue * selected["ev_revenue"]
-        if target_revenue is not None and selected["ev_revenue"] is not None
-        else None
-    )
+    selected_ev_rev = ev_revenue(selected)
 
-    selected_ev_ebitda_value = (
-        target_ebitda * selected["ev_ebitda"]
-        if target_ebitda is not None and selected["ev_ebitda"] is not None
-        else None
-    )
+    p25_value = None
+    median_value = None
+    p75_value = None
+    selected_value = None
+    average_value = None
 
-    median_ev_rev_value = (
-        target_revenue * median_ev_rev
-        if target_revenue is not None and median_ev_rev is not None
-        else None
-    )
+    if target_rev is not None:
+        if ev_rev_stats["p25"] is not None:
+            p25_value = target_rev * ev_rev_stats["p25"] / 1000
 
-    median_ev_ebitda_value = (
-        target_ebitda * median_ev_ebitda
-        if target_ebitda is not None and median_ev_ebitda is not None
-        else None
-    )
+        if ev_rev_stats["median"] is not None:
+            median_value = target_rev * ev_rev_stats["median"] / 1000
 
-    buffer = BytesIO()
+        if ev_rev_stats["p75"] is not None:
+            p75_value = target_rev * ev_rev_stats["p75"] / 1000
+
+        if selected_ev_rev is not None:
+            selected_value = target_rev * selected_ev_rev / 1000
+
+        if ev_rev_stats["mean"] is not None:
+            average_value = target_rev * ev_rev_stats["mean"] / 1000
+
+    if p25_value is not None and p75_value is not None:
+        conclusion = (
+            f"Based on the peer 25th to 75th percentile EV/Revenue range, "
+            f"{target_name}'s implied enterprise value is approximately "
+            f"${p25_value:.2f}B to ${p75_value:.2f}B, with a peer median case of "
+            f"${median_value:.2f}B."
+        )
+    elif selected_value is not None:
+        conclusion = (
+            f"Based on the selected comparable company's EV/Revenue multiple, "
+            f"{target_name}'s implied enterprise value is approximately "
+            f"${selected_value:.2f}B."
+        )
+    else:
+        conclusion = (
+            "A valuation conclusion could not be fully calculated because target revenue "
+            "or usable EV/Revenue multiples are missing."
+        )
 
     doc = SimpleDocTemplate(
-        buffer,
+        output_path,
         pagesize=letter,
-        rightMargin=0.45 * inch,
-        leftMargin=0.45 * inch,
-        topMargin=0.45 * inch,
+        rightMargin=0.55 * inch,
+        leftMargin=0.55 * inch,
+        topMargin=0.55 * inch,
         bottomMargin=0.55 * inch,
     )
 
-    s = styles()
     story = []
 
-    story.append(Paragraph("Valence Comparable Company Report", s["TitlePurple"]))
-    story.append(Paragraph(f"<b>Target Company:</b> {target_name}", s["BodyClean"]))
-    story.append(
-        Paragraph(
-            f"<b>Selected Public Comparable:</b> {selected['company']} ({selected['ticker']})",
-            s["BodyClean"],
-        )
-    )
-    story.append(Paragraph(f"<b>Generated:</b> {datetime.now().strftime('%B %d, %Y')}", s["BodySmall"]))
-    story.append(Spacer(1, 8))
+    story.append(make_para("Valence Comparable Company Report", styles["title"]))
 
-    story.append(Paragraph("Executive Summary", s["Section"]))
     story.append(
-        Paragraph(
-            f"This report presents a comparable company analysis for <b>{target_name}</b> using "
-            f"<b>{selected['company']}</b> as the selected public comparable. The analysis reviews "
-            f"target inputs, peer-company financial metrics, trading multiples, match quality, and "
-            f"implied enterprise-value calculations. Values are shown as N/A when the underlying "
-            f"application data is missing, so missing information does not turn into fake zeroes.",
-            s["BodyClean"],
+        make_para(
+            f"Target: {target_name} | Selected Comparable: {selected_name} ({selected_ticker})",
+            styles["subtitle"],
         )
     )
 
-    story.append(Paragraph("Target Company Inputs", s["Section"]))
-    story.append(
-        make_table(
-            [
-                ["Metric", "Value"],
-                ["Target Company", str(target_name)],
-                ["Industry / Sector", str(target_industry)],
-                ["Revenue", fmt_m(target_revenue)],
-                ["EBITDA", fmt_m(target_ebitda)],
-                ["EBITDA Margin", fmt_pct(target_margin)],
-            ],
-            [1.7 * inch, 4.8 * inch],
-        )
+    story.append(make_para("Executive Summary", styles["h1"]))
+    story.append(make_para(conclusion, styles["body"]))
+
+    source_date = safe_get(
+        selected,
+        "marketDataDate",
+        "asOfDate",
+        "sourceDate",
+        default=generated_at,
     )
 
-    story.append(Paragraph("Selected Comparable Company Overview", s["Section"]))
-    story.append(
-        make_table(
-            [
-                ["Metric", "Value"],
-                ["Company", selected["company"]],
-                ["Ticker", selected["ticker"]],
-                ["Industry", selected["industry"]],
-                ["Revenue", fmt_m(selected["revenue"])],
-                ["EBITDA", fmt_m(selected["ebitda"])],
-                ["EBITDA Margin", fmt_pct(selected["ebitda_margin"])],
-                ["Market Cap", fmt_m(selected["market_cap"])],
-                ["Enterprise Value", fmt_m(selected["enterprise_value"])],
-                ["EV / Revenue", fmt_x(selected["ev_revenue"])],
-                ["EV / EBITDA", fmt_x(selected["ev_ebitda"])],
-                ["Match Score", fmt_pct(selected["match_score"])],
-            ],
-            [1.7 * inch, 4.8 * inch],
-        )
+    financial_period = safe_get(
+        selected,
+        "financialPeriod",
+        "period",
+        "fiscalYear",
+        "latestFiscalYear",
+        default="Latest available fiscal year / LTM, where available",
     )
 
-    story.append(Paragraph("Comparable Company Set", s["Section"]))
-
-    if comps:
-        comp_table = [["Ticker", "Company", "Revenue", "EBITDA", "EV/Rev", "EV/EBITDA", "Match"]]
-
-        for c in comps[:12]:
-            comp_table.append(
-                [
-                    c["ticker"],
-                    c["company"],
-                    fmt_m(c["revenue"]),
-                    fmt_m(c["ebitda"]),
-                    fmt_x(c["ev_revenue"]),
-                    fmt_x(c["ev_ebitda"]),
-                    fmt_pct(c["match_score"]),
-                ]
-            )
-
-        story.append(
-            make_table(
-                comp_table,
-                [
-                    0.65 * inch,
-                    1.65 * inch,
-                    0.9 * inch,
-                    0.9 * inch,
-                    0.75 * inch,
-                    0.85 * inch,
-                    0.65 * inch,
-                ],
-            )
-        )
-    else:
-        story.append(Paragraph("No comparable-company rows were passed from the application.", s["BodyClean"]))
-
-    story.append(PageBreak())
-
-    story.append(Paragraph("Charts", s["Section"]))
-
-    labels = [c["ticker"] for c in comps[:8]]
-
-    story.append(chart("Revenue Comparison", labels, [c["revenue"] for c in comps[:8]], "Revenue ($M)"))
-    story.append(Spacer(1, 14))
-
-    story.append(
-        chart(
-            "EBITDA Margin Comparison",
-            labels,
-            [c["ebitda_margin"] for c in comps[:8]],
-            "EBITDA Margin (%)",
-        )
-    )
-    story.append(Spacer(1, 14))
-
-    story.append(
-        chart(
-            "EV / EBITDA Multiple Comparison",
-            labels,
-            [c["ev_ebitda"] for c in comps[:8]],
-            "EV / EBITDA (x)",
-        )
-    )
-
-    story.append(PageBreak())
-
-    story.append(Paragraph("Valuation Analysis", s["Section"]))
-
-    valuation_table = [
+    summary_table = [
+        ["Item", "Conclusion"],
+        ["Selected Comparable", f"{selected_name} ({selected_ticker})"],
+        ["Selected EV/Revenue", fmt_x(selected_ev_rev)],
+        ["Peer Median EV/Revenue", fmt_x(ev_rev_stats["median"])],
         [
-            "Method",
-            "Private Company Metric",
-            "Selected Multiple",
-            "Selected-Comp Implied EV",
-            "Peer Median Implied EV",
+            "Peer 25th / 75th EV/Revenue",
+            f"{fmt_x(ev_rev_stats['p25'])} / {fmt_x(ev_rev_stats['p75'])}",
         ],
         [
-            "EV / Revenue",
-            fmt_m(target_revenue),
-            fmt_x(selected["ev_revenue"]),
-            fmt_m(selected_ev_rev_value),
-            fmt_m(median_ev_rev_value),
+            "Implied EV Range",
+            f"${p25_value:.2f}B - ${p75_value:.2f}B"
+            if p25_value is not None and p75_value is not None
+            else "N/A",
+        ],
+        ["Market Data Date", str(source_date)],
+        ["Financials", str(financial_period)],
+    ]
+
+    story.append(build_table(summary_table, col_widths=[2.1 * inch, 5.0 * inch]))
+    story.append(Spacer(1, 10))
+
+    story.append(make_para("Target Company Profile", styles["h1"]))
+
+    target_profile = [
+        ["Field", "Value"],
+        ["Company Name", fmt_plain(target_name)],
+        [
+            "Business Description",
+            fmt_plain(
+                safe_get(target, "description", "businessDescription", "business_description")
+            ),
+        ],
+        ["Sector", fmt_plain(safe_get(target, "sector"))],
+        [
+            "Sub-Sector / Industry",
+            fmt_plain(safe_get(target, "subSector", "sub_sector", "industry")),
         ],
         [
-            "EV / EBITDA",
-            fmt_m(target_ebitda),
-            fmt_x(selected["ev_ebitda"]),
-            fmt_m(selected_ev_ebitda_value),
-            fmt_m(median_ev_ebitda_value),
+            "Geography",
+            fmt_plain(safe_get(target, "geography", "hq", "headquarters", "location")),
+        ],
+        [
+            "Revenue Model",
+            fmt_plain(
+                safe_get(target, "revenueModel", "revenue_model", "businessModel", "business_model")
+            ),
+        ],
+        ["Customer Type", fmt_plain(safe_get(target, "customerType", "customer_type"))],
+        ["Revenue", fmt_m(target_rev)],
+        ["Revenue Growth", fmt_pct(revenue_growth_pct(target))],
+        ["Gross Margin", fmt_pct(gross_margin_pct(target))],
+        ["EBITDA Margin", fmt_pct(ebitda_margin_pct(target))],
+        ["Employee Count", fmt_plain(safe_get(target, "employees", "employeeCount", "employee_count"))],
+    ]
+
+    story.append(build_table(target_profile, col_widths=[2.1 * inch, 5.0 * inch]))
+    story.append(Spacer(1, 10))
+
+    story.append(make_para("Comparable Selection Rationale", styles["h1"]))
+
+    for reason in selected_comp_rationale(target, selected, peer_comps):
+        story.append(make_bullet(reason, styles["body"]))
+
+    story.append(Spacer(1, 10))
+
+    story.append(make_para("Peer Comparable Company Set", styles["h1"]))
+
+    peer_rows = [
+        [
+            "Company",
+            "Ticker",
+            "Revenue",
+            "EV",
+            "EV/Revenue",
+            "EV/EBITDA",
+            "EBITDA Margin",
+            "Revenue Growth",
+            "Match",
+        ]
+    ]
+
+    for c in peer_comps:
+        score = safe_get(c, "matchScore", "match_score", "score")
+        score_text = f"{to_float(score):.1f}%" if to_float(score) is not None else "N/A"
+
+        peer_rows.append(
+            [
+                company_name(c),
+                ticker(c),
+                fmt_m(revenue_m(c)),
+                fmt_m(enterprise_value_m(c)),
+                fmt_x(ev_revenue(c)),
+                fmt_x(ev_ebitda(c)),
+                fmt_pct(ebitda_margin_pct(c)),
+                fmt_pct(revenue_growth_pct(c)),
+                score_text,
+            ]
+        )
+
+    story.append(
+        build_table(
+            peer_rows,
+            col_widths=[
+                1.25 * inch,
+                0.55 * inch,
+                0.75 * inch,
+                0.75 * inch,
+                0.75 * inch,
+                0.75 * inch,
+                0.8 * inch,
+                0.8 * inch,
+                0.6 * inch,
+            ],
+            font_size=7,
+        )
+    )
+
+    story.append(Spacer(1, 12))
+    story.append(make_para("Full Peer Statistics", styles["h1"]))
+
+    stats_table = [
+        ["Metric", "Mean", "Median", "Min", "25th Percentile", "75th Percentile", "Max"],
+        [
+            "EV/Revenue",
+            fmt_x(ev_rev_stats["mean"]),
+            fmt_x(ev_rev_stats["median"]),
+            fmt_x(ev_rev_stats["min"]),
+            fmt_x(ev_rev_stats["p25"]),
+            fmt_x(ev_rev_stats["p75"]),
+            fmt_x(ev_rev_stats["max"]),
+        ],
+        [
+            "EV/EBITDA",
+            fmt_x(ev_ebitda_stats["mean"]),
+            fmt_x(ev_ebitda_stats["median"]),
+            fmt_x(ev_ebitda_stats["min"]),
+            fmt_x(ev_ebitda_stats["p25"]),
+            fmt_x(ev_ebitda_stats["p75"]),
+            fmt_x(ev_ebitda_stats["max"]),
         ],
     ]
 
     story.append(
-        make_table(
-            valuation_table,
-            [
+        build_table(
+            stats_table,
+            col_widths=[
+                1.2 * inch,
+                0.9 * inch,
+                0.9 * inch,
+                0.9 * inch,
                 1.1 * inch,
-                1.25 * inch,
-                1.05 * inch,
-                1.45 * inch,
-                1.45 * inch,
+                1.1 * inch,
+                0.9 * inch,
             ],
         )
     )
 
-    story.append(Paragraph("Calculation Walkthrough", s["Section"]))
+    story.append(Spacer(1, 12))
+    story.append(make_para("Match Score Breakdown", styles["h1"]))
+
+    breakdown_rows = [["Category", "Weight", "Score", "Comment"]]
+    breakdown_rows.extend(calculate_match_breakdown(target, selected))
 
     story.append(
-        Paragraph(
-            f"<b>EV / Revenue Method:</b> {fmt_m(target_revenue)} of private-company revenue "
-            f"multiplied by {fmt_x(selected['ev_revenue'])} selected-company EV / Revenue implies "
-            f"{fmt_m(selected_ev_rev_value)} of enterprise value. Using the peer median multiple of "
-            f"{fmt_x(median_ev_rev)} implies {fmt_m(median_ev_rev_value)}.",
-            s["BodyClean"],
+        build_table(
+            breakdown_rows,
+            col_widths=[1.4 * inch, 0.7 * inch, 0.7 * inch, 4.3 * inch],
         )
     )
 
-    story.append(Spacer(1, 4))
+    story.append(PageBreak())
+
+    story.append(make_para("Valuation Summary", styles["h1"]))
+
+    valuation_rows = [
+        ["Method", "Selected Multiple / Range", "Target Metric", "Implied Enterprise Value"],
+        [
+            "Selected Comp EV/Revenue",
+            fmt_x(selected_ev_rev),
+            fmt_m(target_rev),
+            f"${selected_value:.2f}B" if selected_value is not None else "N/A",
+        ],
+        [
+            "Peer Median EV/Revenue",
+            fmt_x(ev_rev_stats["median"]),
+            fmt_m(target_rev),
+            f"${median_value:.2f}B" if median_value is not None else "N/A",
+        ],
+        [
+            "Peer 25th - 75th EV/Revenue",
+            f"{fmt_x(ev_rev_stats['p25'])} - {fmt_x(ev_rev_stats['p75'])}",
+            fmt_m(target_rev),
+            f"${p25_value:.2f}B - ${p75_value:.2f}B"
+            if p25_value is not None and p75_value is not None
+            else "N/A",
+        ],
+    ]
+
+    if target_ebitda is not None and ev_ebitda_stats["median"] is not None:
+        implied_ebitda_value = target_ebitda * ev_ebitda_stats["median"] / 1000
+
+        valuation_rows.append(
+            [
+                "Peer Median EV/EBITDA",
+                fmt_x(ev_ebitda_stats["median"]),
+                fmt_m(target_ebitda),
+                f"${implied_ebitda_value:.2f}B",
+            ]
+        )
 
     story.append(
-        Paragraph(
-            f"<b>EV / EBITDA Method:</b> {fmt_m(target_ebitda)} of private-company EBITDA "
-            f"multiplied by {fmt_x(selected['ev_ebitda'])} selected-company EV / EBITDA implies "
-            f"{fmt_m(selected_ev_ebitda_value)} of enterprise value. Using the peer median multiple of "
-            f"{fmt_x(median_ev_ebitda)} implies {fmt_m(median_ev_ebitda_value)}.",
-            s["BodyClean"],
+        build_table(
+            valuation_rows,
+            col_widths=[2.0 * inch, 1.7 * inch, 1.6 * inch, 1.8 * inch],
         )
     )
 
-    story.append(Paragraph("Methodology and Important Notes", s["Section"]))
+    story.append(Spacer(1, 12))
+    story.append(make_para("EV/Revenue Sensitivity", styles["h1"]))
+
+    base_multiples = [3.5, 4.0, 4.5, 5.0]
+    sensitivity_rows = [["EV/Revenue Multiple", "Target Revenue", "Implied Enterprise Value"]]
+
+    for multiple in base_multiples:
+        if target_rev is not None:
+            implied = target_rev * multiple / 1000
+            implied_text = f"${implied:.2f}B"
+        else:
+            implied_text = "N/A"
+
+        sensitivity_rows.append([fmt_x(multiple), fmt_m(target_rev), implied_text])
 
     story.append(
-        Paragraph(
-            "Comparable-company valuation depends on business similarity, scale, growth, margins, "
-            "capital structure, and the quality of the selected peer set. This automated report should "
-            "be used as a clean analytical starting point, not as investment advice. Missing values are "
-            "shown as N/A instead of $0.0M unless the input data is actually zero.",
-            s["BodyClean"],
+        build_table(
+            sensitivity_rows,
+            col_widths=[2.2 * inch, 2.2 * inch, 2.7 * inch],
         )
     )
 
-    doc.build(story, onFirstPage=add_page_number, onLaterPages=add_page_number)
+    temp_dir = tempfile.mkdtemp()
 
-    return buffer.getvalue()
+    football_ranges = []
+
+    if selected_value is not None:
+        football_ranges.append(
+            (
+                "Selected Comp",
+                max(selected_value * 0.9, 0),
+                selected_value * 1.1,
+                selected_value,
+            )
+        )
+
+    if median_value is not None:
+        football_ranges.append(
+            (
+                "Peer Median",
+                max(median_value * 0.9, 0),
+                median_value * 1.1,
+                median_value,
+            )
+        )
+
+    if average_value is not None:
+        football_ranges.append(
+            (
+                "Peer Average",
+                max(average_value * 0.9, 0),
+                average_value * 1.1,
+                average_value,
+            )
+        )
+
+    if p25_value is not None and p75_value is not None:
+        football_ranges.append(
+            (
+                "Peer Quartile Range",
+                p25_value,
+                p75_value,
+                median_value,
+            )
+        )
+
+    football_path = os.path.join(temp_dir, "football_field.png")
+    football_chart = create_football_field_chart(football_ranges, football_path)
+
+    if football_chart:
+        story.append(Spacer(1, 12))
+        story.append(Image(football_chart, width=7.1 * inch, height=3.35 * inch))
+
+    story.append(PageBreak())
+
+    story.append(make_para("Charts and Data Quality Review", styles["h1"]))
+
+    labels = [ticker(c) for c in peer_comps]
+
+    ev_rev_chart_path = os.path.join(temp_dir, "ev_revenue_chart.png")
+    ev_rev_chart = create_bar_chart(
+        labels,
+        [ev_revenue(c) for c in peer_comps],
+        "EV/Revenue Multiples",
+        "EV/Revenue",
+        ev_rev_chart_path,
+        suffix="x",
+    )
+
+    if ev_rev_chart:
+        story.append(Image(ev_rev_chart, width=7.1 * inch, height=3.15 * inch))
+        story.append(Spacer(1, 10))
+
+    ev_ebitda_chart_path = os.path.join(temp_dir, "ev_ebitda_chart.png")
+    ev_ebitda_chart = create_bar_chart(
+        labels,
+        [ev_ebitda(c) for c in peer_comps],
+        "EV/EBITDA Multiples",
+        "EV/EBITDA",
+        ev_ebitda_chart_path,
+        suffix="x",
+    )
+
+    if ev_ebitda_chart:
+        story.append(Image(ev_ebitda_chart, width=7.1 * inch, height=3.15 * inch))
+        story.append(Spacer(1, 10))
+
+    story.append(make_para("Red Flag / Data Quality Section", styles["h1"]))
+
+    warning_rows = [["Issue"]]
+
+    for flag in data_quality_flags(target, selected, peer_comps):
+        warning_rows.append([flag])
+
+    warning_table = build_table(warning_rows, col_widths=[7.1 * inch])
+
+    warning_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 1), (-1, -1), WARNING_BG),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ]
+        )
+    )
+
+    story.append(warning_table)
+    story.append(Spacer(1, 12))
+
+    story.append(make_para("Metric Definitions", styles["h1"]))
+
+    definitions = [
+        "EV/Revenue = Enterprise Value divided by revenue.",
+        "EV/EBITDA = Enterprise Value divided by EBITDA. This is hidden from valuation output when target EBITDA is missing.",
+        "Gross Margin = Gross profit divided by revenue.",
+        "EBITDA Margin = EBITDA divided by revenue.",
+        "Rule of 40 = Revenue growth plus free cash flow margin, where both data points are available.",
+        "All financial metrics should be checked against source filings, market data providers, or company disclosures before using the report externally.",
+    ]
+
+    for definition in definitions:
+        story.append(make_bullet(definition, styles["body"]))
+
+    doc.build(
+        story,
+        onFirstPage=lambda canvas, doc: footer(canvas, doc, generated_at),
+        onLaterPages=lambda canvas, doc: footer(canvas, doc, generated_at),
+    )
+
+    return output_path

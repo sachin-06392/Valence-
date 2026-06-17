@@ -139,3 +139,77 @@
     text-align: left;
   }
 }
+
+.report-button-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.peer-comparison-table {
+  width: 100%;
+  border: 1px solid #25213a;
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 2rem;
+  background: #111116;
+}
+
+.peer-row {
+  display: grid;
+  grid-template-columns: 0.8fr 2fr 1fr 1fr 1fr 1fr 0.8fr;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid #25213a;
+  color: #e5e7eb;
+  font-size: 0.9rem;
+}
+
+.peer-row:last-child {
+  border-bottom: none;
+}
+
+.peer-header {
+  background: #21143d;
+  color: white;
+  font-weight: 800;
+}
+
+.peer-row span:first-child {
+  color: #a78bfa;
+  font-weight: 800;
+}
+
+.company-title-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.detail-download-btn,
+.download-report-btn {
+  margin-top: 18px;
+  background: linear-gradient(135deg, #7c3aed, #9333ea);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 11px 18px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(124, 58, 237, 0.25);
+}
+
+.detail-download-btn:hover,
+.download-report-btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.08);
+}
+
+.detail-download-btn:disabled,
+.download-report-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}

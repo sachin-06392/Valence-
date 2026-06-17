@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import InputPanel from './components/InputPanel';
-import ResultsPanel from './components/ResultsPanel';
+import InputPanel from "./components/InputPanel";
+import ResultsPanel from "./components/ResultsPanel";
 import CompanyDetail from "./components/CompanyDetail";
-import './App.css';
+import "./App.css";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
@@ -20,14 +20,13 @@ function HomePage() {
     setResults(null);
     setHasSubmitted(true);
 
-    // This saves the private company inputs so the PDF report can use them
     setPrivateCompany(formData);
 
     try {
       const res = await fetch(`${API_BASE}/api/find-comps`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(formData),
       });
@@ -43,12 +42,24 @@ function HomePage() {
         setResults(null);
       } else {
         setResults(data);
+
+        // Save the full comp set so the ticker detail page + PDF can use it
+        localStorage.setItem(
+          "valenceLastComps",
+          JSON.stringify(data.comps || [])
+        );
+
+        // Save the private company input so the PDF valuation section uses the user input
+        localStorage.setItem(
+          "valenceLastPrivateCompany",
+          JSON.stringify(formData || {})
+        );
       }
     } catch (e) {
       console.error(e);
       setError(
         e.message ||
-        'Cannot reach server. Make sure the backend is running on port 8000.'
+          "Cannot reach server. Make sure the backend is running on port 8000."
       );
       setResults(null);
     } finally {
@@ -74,11 +85,12 @@ function HomePage() {
       <div className="page-header">
         <h1>Trading Comps Analysis</h1>
         <p>
-          Enter a private company's financials. We'll find the closest public comparables and compute an implied valuation.
+          Enter a private company's financials. We'll find the closest public
+          comparables and compute an implied valuation.
         </p>
       </div>
 
-      <div className={`layout ${hasSubmitted ? 'layout-split' : 'layout-center'}`}>
+      <div className={`layout ${hasSubmitted ? "layout-split" : "layout-center"}`}>
         <InputPanel onSubmit={handleSubmit} loading={loading} />
 
         {hasSubmitted && (

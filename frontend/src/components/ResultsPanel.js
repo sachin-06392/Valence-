@@ -24,7 +24,7 @@ function StatCard({ label, value, sub }) {
   );
 }
 
-function CompsTable({ comps = [] }) {
+function CompsTable({ comps = [], privateCompany = null }) {
   const [sort, setSort] = useState({ key: 'match_score', dir: -1 });
 
   const sorted = [...comps].sort((a, b) => {
@@ -57,16 +57,35 @@ function CompsTable({ comps = [] }) {
             <Th k="ev_gp" label="EV/GP" />
             <Th k="rev_growth" label="Rev Growth" />
             <Th k="gross_margin" label="Gross Margin" />
-            <th>Actions</th>
           </tr>
         </thead>
+
         <tbody>
           {sorted.map((c, i) => {
             const ticker = c.ticker || c.symbol || "company";
+
             return (
               <tr key={ticker} className={i === 0 ? 'top-row' : ''}>
-                <td><span className="ticker">{ticker}</span></td>
-                <td className="name-cell">{c.name}</td>
+                <td>
+                  <span className="ticker">{ticker}</span>
+                </td>
+
+                <td className="name-cell">
+                  <div className="company-name">{c.name}</div>
+
+                  <Link
+                    to={`/company/${encodeURIComponent(ticker)}`}
+                    state={{
+                      company: c,
+                      comps,
+                      privateCompany
+                    }}
+                    className="basic-details-btn"
+                  >
+                    Basic Details
+                  </Link>
+                </td>
+
                 <td className="sub-cell">{c.sub}</td>
                 <td><MatchBadge score={c.match_score} /></td>
                 <td>{fmtB(c.market_cap_b)}</td>
@@ -76,25 +95,6 @@ function CompsTable({ comps = [] }) {
                 <td className="num">{fmtX(c.ev_gp)}</td>
                 <td className="num">{fmtPct(c.rev_growth)}</td>
                 <td className="num">{fmtPct(c.gross_margin)}</td>
-                <td>
-                  <Link
-                    style={{
-                      background: '#7c3aed',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      padding: '5px 12px',
-                      fontSize: '12px',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                      textDecoration: 'none',
-                      whiteSpace: 'nowrap',
-                    }}
-                    to={`/company/${encodeURIComponent(ticker)}`}
-                  >
-                    View Details
-                  </Link>
-                </td>
               </tr>
             );
           })}
@@ -117,6 +117,7 @@ function MultiplesTable({ multiples }) {
       {rows.map(r => {
         const m = multiples?.[r.key];
         if (!m) return null;
+
         return (
           <div key={r.key} className="mult-card">
             <div className="mult-label">{r.label}</div>
@@ -157,6 +158,7 @@ function ValuationOutput({ implied = {}, overall_range }) {
               <div className="val-method-name">{m.method}</div>
               <div className="val-method-calc">{m.label}</div>
             </div>
+
             <div className="val-method-results">
               <span className="val-range-low">{fmtM(m.low)}</span>
               <span className="val-arrow"> — </span>
@@ -169,6 +171,7 @@ function ValuationOutput({ implied = {}, overall_range }) {
 
       <div className="chart-section">
         <div className="section-title">Valuation range by method ($M)</div>
+
         <ResponsiveContainer width="100%" height={180}>
           <BarChart data={chartData} layout="vertical" margin={{ left: 80, right: 40, top: 8, bottom: 8 }}>
             <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={v => `$${v}M`} />
@@ -189,7 +192,10 @@ function ValuationOutput({ implied = {}, overall_range }) {
               {fmtM(overall_range.low)} – {fmtM(overall_range.high)}
             </div>
           </div>
-          <div className="implied-note">Based on 25th–75th percentile of peer multiples</div>
+
+          <div className="implied-note">
+            Based on 25th–75th percentile of peer multiples
+          </div>
         </div>
       )}
     </div>
@@ -242,6 +248,7 @@ export default function ResultsPanel({
         <StatCard label="Comps found" value={comps_count} sub={`in ${sector_label}`} />
         <StatCard label="Median EV/Revenue" value={medEVRev ? `${medEVRev}×` : '—'} sub="peer median" />
         <StatCard label="Median EV/EBITDA" value={medEVEBITDA ? `${medEVEBITDA}×` : '—'} sub="peer median" />
+
         {overall_range && (
           <StatCard
             label="Implied EV range"
@@ -268,14 +275,22 @@ export default function ResultsPanel({
       </div>
 
       <div className="tab-content">
-        {tab === 'comps' && <CompsTable comps={comps} privateCompany={privateCompany} />}
+        {tab === 'comps' && (
+          <CompsTable comps={comps} privateCompany={privateCompany} />
+        )}
+
         {tab === 'multiples' && (
           <div>
-            <p className="section-desc">Multiples across the {comps_count} closest public comparables.</p>
+            <p className="section-desc">
+              Multiples across the {comps_count} closest public comparables.
+            </p>
             <MultiplesTable multiples={multiples} />
           </div>
         )}
-        {tab === 'valuation' && <ValuationOutput implied={implied} overall_range={overall_range} />}
+
+        {tab === 'valuation' && (
+          <ValuationOutput implied={implied} overall_range={overall_range} />
+        )}
       </div>
     </div>
   );
