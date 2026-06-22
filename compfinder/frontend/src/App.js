@@ -1,8 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import InputPanel from "./components/InputPanel";
 import ResultsPanel from "./components/ResultsPanel";
 import CompanyDetail from "./components/CompanyDetail";
+import MarketIntelligenceTerminal from "./components/MarketIntelligenceTerminal";
 import "./App.css";
 
 const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
@@ -13,6 +14,23 @@ function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("market");
+
+  useEffect(() => {
+    if (window.location.hash === "#analysis-workbench") {
+      setActiveWorkspaceTab("builder");
+    }
+  }, []);
+
+  const openBuilder = () => {
+    setActiveWorkspaceTab("builder");
+    window.history.replaceState(null, "", "#analysis-workbench");
+  };
+
+  const openMarket = () => {
+    setActiveWorkspaceTab("market");
+    window.history.replaceState(null, "", window.location.pathname);
+  };
 
   const handleSubmit = async (formData) => {
     setLoading(true);
@@ -82,26 +100,69 @@ function HomePage() {
         <div className="nav-right">60+ public comps · 5 sectors</div>
       </nav>
 
-      <div className="page-header">
-        <h1>Trading Comps Analysis</h1>
-        <p>
-          Enter a private company's financials. We'll find the closest public
-          comparables and compute an implied valuation.
-        </p>
+      <div className="workspace-tabs">
+        <button
+          type="button"
+          className={activeWorkspaceTab === "market" ? "active" : ""}
+          onClick={openMarket}
+        >
+          Market Intelligence
+        </button>
+        <button
+          type="button"
+          className={activeWorkspaceTab === "builder" ? "active" : ""}
+          onClick={openBuilder}
+        >
+          Build Comp Set
+        </button>
       </div>
 
-      <div className={`layout ${hasSubmitted ? "layout-split" : "layout-center"}`}>
-        <InputPanel onSubmit={handleSubmit} loading={loading} />
+      {activeWorkspaceTab === "market" && (
+        <div className="hero-shell">
+          <div className="hero-copy">
+            <span className="hero-kicker">AI-powered public comps engine</span>
+            <h1>Trading Comps Analysis</h1>
+            <p>
+              Enter a private company's financials. Valence screens public
+              comparables, ranks fit, and computes an implied valuation range.
+            </p>
+          </div>
 
-        {hasSubmitted && (
-          <ResultsPanel
+          <MarketIntelligenceTerminal
+            privateCompany={privateCompany}
             results={results}
             loading={loading}
-            error={error}
-            privateCompany={privateCompany}
+            onRunAnalysis={openBuilder}
           />
-        )}
-      </div>
+        </div>
+      )}
+
+      {activeWorkspaceTab === "builder" && (
+        <section id="analysis-workbench" className="workbench-section">
+          <div className="workbench-header">
+            <span>Company Analysis Workbench</span>
+            <h2>Build the private company profile, then generate the comp set.</h2>
+            <p>
+              Enter the target company&apos;s operating metrics below. Valence uses
+              that profile to rank public comps, calculate valuation multiples,
+              and prepare the report.
+            </p>
+          </div>
+
+          <div className={`layout ${hasSubmitted ? "layout-split" : "layout-center"}`}>
+            <InputPanel onSubmit={handleSubmit} loading={loading} />
+
+            {hasSubmitted && (
+              <ResultsPanel
+                results={results}
+                loading={loading}
+                error={error}
+                privateCompany={privateCompany}
+              />
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

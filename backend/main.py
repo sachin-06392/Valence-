@@ -10,6 +10,7 @@ import tempfile
 import requests
 import yfinance as yf
 import numpy as np
+from datetime import datetime, timezone
 
 from company_universe import COMPANY_UNIVERSE
 from financials_db import FINANCIALS_DB
@@ -490,6 +491,50 @@ def clean_text(value: Any) -> str:
     return str(value).lower().strip()
 
 
+def safe_number(value: Any, default=None):
+    if value is None or value == "":
+        return default
+
+    if isinstance(value, (int, float)):
+        return float(value) if np.isfinite(value) else default
+
+    try:
+        text = str(value).strip()
+        if not text or text in {"—", "-", "N/A", "n/a", "None"}:
+            return default
+
+        multiplier = 1
+        if text[-1:].upper() == "B":
+            multiplier = 1_000_000_000
+            text = text[:-1]
+        elif text[-1:].upper() == "M":
+            multiplier = 1_000_000
+            text = text[:-1]
+
+        cleaned = re.sub(r"[$,%x×,\s]", "", text)
+        if not cleaned:
+            return default
+
+        return float(cleaned) * multiplier
+    except Exception:
+        return default
+
+
+def safe_divide(numerator: Any, denominator: Any, default=None):
+    num = safe_number(numerator)
+    den = safe_number(denominator)
+
+    if num is None or den in [None, 0]:
+        return default
+
+    return num / den
+
+
+def safe_report_name(value: Any, default: str = "company") -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "", str(value or default).upper())
+    return cleaned or default
+
+
 def normalize_sector(sector: Optional[str]) -> Optional[str]:
     if not sector:
         return None
@@ -820,6 +865,13 @@ class PrivateCompanyInput(BaseModel):
     cac_payback_months: Optional[float] = None
 
 
+def model_to_dict(model: BaseModel) -> Dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+
+    return model.dict()
+
+
 @app.post("/api/find-comps")
 def find_comps(inp: PrivateCompanyInput):
     priv = model_to_dict(inp)
@@ -1083,6 +1135,164 @@ def health():
 @app.get("/api/sectors")
 def sectors():
     return {"sectors": SECTOR_LIST}
+
+
+FALLBACK_MA_DEALS = [
+    {
+        "buyer": "Salesforce",
+        "target": "Informatica",
+        "value": "$8.0B",
+        "sector": "Data Infrastructure",
+        "status": "Announced",
+        "date": "2025-05-27",
+        "angle": "Strategic data cloud expansion across AI, governance, and integration.",
+        "sourceName": "Salesforce Newsroom",
+        "sourceUrl": "https://www.salesforce.com/news/press-releases/2025/05/27/salesforce-signs-definitive-agreement-to-acquire-informatica/",
+    },
+    {
+        "buyer": "HPE",
+        "target": "Juniper Networks",
+        "value": "$14.0B",
+        "sector": "AI Networking",
+        "status": "Closed",
+        "date": "2025-07-02",
+        "angle": "Networking scale-up for AI-native enterprise and cloud infrastructure.",
+        "sourceName": "HPE Newsroom",
+        "sourceUrl": "https://www.hpe.com/us/en/newsroom/press-release/2025/07/hewlett-packard-enterprise-completes-acquisition-of-juniper-networks.html",
+    },
+    {
+        "buyer": "Synopsys",
+        "target": "Ansys",
+        "value": "$35.0B",
+        "sector": "Engineering Software",
+        "status": "Closed",
+        "date": "2025-07-17",
+        "angle": "Silicon-to-systems platform consolidation across EDA and simulation.",
+        "sourceName": "Synopsys Newsroom",
+        "sourceUrl": "https://news.synopsys.com/2025-07-17-Synopsys-Completes-Acquisition-of-Ansys",
+    },
+    {
+        "buyer": "Cisco",
+        "target": "Splunk",
+        "value": "$28.0B",
+        "sector": "Observability",
+        "status": "Closed",
+        "date": "2024-03-18",
+        "angle": "Security, observability, and data analytics consolidation.",
+        "sourceName": "Cisco Newsroom",
+        "sourceUrl": "https://newsroom.cisco.com/c/r/newsroom/en/us/a/y2024/m03/cisco-completes-acquisition-of-splunk.html",
+    },
+    {
+        "buyer": "IBM",
+        "target": "HashiCorp",
+        "value": "$6.4B",
+        "sector": "Cloud Infrastructure",
+        "status": "Closed",
+        "date": "2025-02-27",
+        "angle": "Hybrid cloud automation and infrastructure lifecycle management.",
+        "sourceName": "IBM Newsroom",
+        "sourceUrl": "https://newsroom.ibm.com/2025-02-27-IBM-Completes-Acquisition-of-HashiCorp",
+    },
+    {
+        "buyer": "AMD",
+        "target": "ZT Systems",
+        "value": "$4.9B",
+        "sector": "AI Infrastructure",
+        "status": "Closed",
+        "date": "2025-03-31",
+        "angle": "AI systems design capabilities for hyperscale infrastructure.",
+        "sourceName": "AMD Newsroom",
+        "sourceUrl": "https://www.amd.com/en/newsroom/press-releases/2025-3-31-amd-completes-acquisition-of-zt-systems.html",
+    },
+    {
+        "buyer": "ServiceNow",
+        "target": "Moveworks",
+        "value": "$2.85B",
+        "sector": "Agentic AI",
+        "status": "Announced",
+        "date": "2025-03-10",
+        "angle": "Enterprise AI assistant and automation platform expansion.",
+        "sourceName": "ServiceNow Newsroom",
+        "sourceUrl": "https://www.servicenow.com/company/media/press-room/servicenow-to-acquire-moveworks.html",
+    },
+    {
+        "buyer": "Google",
+        "target": "Wiz",
+        "value": "$32.0B",
+        "sector": "Cloud Security",
+        "status": "Announced",
+        "date": "2025-03-18",
+        "angle": "Cloud-native security platform expansion for Google Cloud.",
+        "sourceName": "Google Cloud Blog",
+        "sourceUrl": "https://cloud.google.com/blog/products/identity-security/google-agreement-to-acquire-wiz",
+    },
+]
+
+
+def normalize_fmp_deal(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+
+    buyer = get_payload_field(raw, ["acquirerName", "acquirer", "buyer", "companyName"])
+    target = get_payload_field(raw, ["targetName", "target", "name"])
+
+    if not buyer or not target:
+        return None
+
+    transaction_value = get_payload_field(
+        raw,
+        ["transactionValue", "dealValue", "value", "totalTransactionValue"],
+        "Undisclosed",
+    )
+
+    if isinstance(transaction_value, (int, float)):
+        value = f"${transaction_value / 1_000_000_000:.1f}B"
+    else:
+        value = str(transaction_value)
+
+    return {
+        "buyer": buyer,
+        "target": target,
+        "value": value,
+        "sector": get_payload_field(raw, ["sector", "industry"], "M&A"),
+        "status": get_payload_field(raw, ["status"], "Latest"),
+        "date": get_payload_field(raw, ["date", "announcedDate", "acceptedDate"], ""),
+        "angle": get_payload_field(raw, ["description", "rationale"], "Latest M&A transaction from market data feed."),
+        "sourceName": get_payload_field(raw, ["source", "sourceName"], "Market data source"),
+        "sourceUrl": get_payload_field(raw, ["url", "sourceUrl", "link"], ""),
+    }
+
+
+@app.get("/api/market-intelligence/deals")
+def latest_deals(limit: int = 6):
+    fmp_api_key = os.getenv("FMP_API_KEY") or os.getenv("REACT_APP_FMP_API_KEY")
+
+    if fmp_api_key:
+        try:
+            response = requests.get(
+                "https://financialmodelingprep.com/stable/mergers-acquisitions-latest",
+                params={"apikey": fmp_api_key, "limit": limit},
+                timeout=8,
+            )
+            response.raise_for_status()
+            raw_deals = response.json()
+            deals = [normalize_fmp_deal(item) for item in raw_deals if isinstance(item, dict)]
+            deals = [deal for deal in deals if deal]
+
+            if deals:
+                return {
+                    "source": "fmp",
+                    "updatedAt": datetime.now(timezone.utc).isoformat(),
+                    "deals": deals[:limit],
+                }
+        except Exception:
+            pass
+
+    return {
+        "source": "official-fallback",
+        "updatedAt": datetime.now(timezone.utc).isoformat(),
+        "deals": FALLBACK_MA_DEALS[: max(1, min(limit, len(FALLBACK_MA_DEALS)))],
+    }
 
 
 SEC_USER_AGENT = os.getenv(
