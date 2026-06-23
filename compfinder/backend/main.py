@@ -11,6 +11,9 @@ import yfinance as yf
 from functools import lru_cache
 from datetime import datetime
 import io
+import sys
+import tempfile
+from pathlib import Path
 
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -20,6 +23,12 @@ from reportlab.lib.units import inch
 
 from company_universe import COMPANY_UNIVERSE
 from financials_db import FINANCIALS_DB
+
+ROOT_BACKEND = Path(__file__).resolve().parents[2] / "backend"
+if str(ROOT_BACKEND) not in sys.path:
+    sys.path.insert(0, str(ROOT_BACKEND))
+
+from report_generator import generate_banker_report
 
 app = FastAPI(title="CompFinder API")
 
@@ -90,6 +99,15 @@ class ReportRequest(BaseModel):
     selectedCompany: Dict[str, Any]
     comps: List[Dict[str, Any]] = []
     privateCompany: Dict[str, Any] = {}
+    multiples: Dict[str, Any] = {}
+    implied: Dict[str, Any] = {}
+    overall_range: Optional[Dict[str, Any]] = None
+    sector_label: Optional[str] = ""
+    comps_count: Optional[int] = None
+
+
+class DeckRequest(ReportRequest):
+    deckOptions: Dict[str, Any] = {}
 
 
 # ── Find Comps ────────────────────────────────────────────────────────────────
@@ -191,249 +209,552 @@ def generate_report(req: ReportRequest):
     comps   = req.comps
     private = req.privateCompany
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter,
-                            rightMargin=0.75*inch, leftMargin=0.75*inch,
-                            topMargin=0.75*inch, bottomMargin=0.75*inch)
+    def to_float(value):
+        try:
+            return None if value in [None, "", "N/A", "NA"] else float(value)
+        except (TypeError, ValueError):
+            return None
 
-    styles  = getSampleStyleSheet()
-    purple  = colors.HexColor("#7c3aed")
-    dark    = colors.HexColor("#111111")
+    def adapt_company(raw):
+        revenue_m = to_float(raw.get("revenue_m") or raw.get("revenue"))
+        ebitda_m = to_float(raw.get("ebitda_m") or raw.get("ebitda"))
+        ev_b = to_float(raw.get("ev_b"))
+        market_cap_b = to_float(raw.get("market_cap_b"))
+        ebitda_margin = (
+            round(ebitda_m / revenue_m * 100, 1)
+            if ebitda_m not in [None, 0] and revenue_m not in [None, 0]
+            else raw.get("ebitdaMargin") or raw.get("ebitda_margin")
+        )
 
-    title_style = ParagraphStyle("title", parent=styles["Title"],
-                                  textColor=purple, fontSize=20, spaceAfter=6)
-    h2_style    = ParagraphStyle("h2", parent=styles["Heading2"],
-                                  textColor=purple, fontSize=13, spaceAfter=4)
-    body_style  = ParagraphStyle("body", parent=styles["Normal"],
-                                  fontSize=10, spaceAfter=4, textColor=dark)
-    small_style = ParagraphStyle("small", parent=styles["Normal"],
-                                  fontSize=8, textColor=colors.grey)
+        return {
+            "companyName": raw.get("companyName") or raw.get("name") or raw.get("company") or "Company",
+            "name": raw.get("name") or raw.get("companyName") or raw.get("company") or "Company",
+            "ticker": raw.get("ticker") or raw.get("symbol") or "N/A",
+            "sector": raw.get("sector") or raw.get("sub") or raw.get("industry") or "",
+            "subSector": raw.get("sub") or raw.get("subSector") or raw.get("industry") or "",
+            "description": raw.get("description") or raw.get("businessDescription") or "",
+            "revenue": revenue_m,
+            "ebitda": ebitda_m,
+            "enterpriseValue": ev_b * 1000 if ev_b is not None else raw.get("enterpriseValue"),
+            "marketCap": market_cap_b * 1000 if market_cap_b is not None else raw.get("marketCap"),
+            "evRevenue": raw.get("ev_rev") or raw.get("evRevenue"),
+            "evEbitda": raw.get("ev_ebitda") or raw.get("evEbitda"),
+            "ebitdaMargin": ebitda_margin,
+            "grossMargin": raw.get("gross_margin") or raw.get("grossMargin"),
+            "revenueGrowth": raw.get("rev_growth") or raw.get("revenueGrowth"),
+            "matchScore": raw.get("match_score") or raw.get("matchScore"),
+            "marketDataDate": raw.get("marketDataDate") or "Latest available market/database data",
+            "financialPeriod": raw.get("financialPeriod") or "Latest available fiscal year / LTM where available",
+        }
+
+    selected_company = adapt_company(company or {})
+    comp_set = [adapt_company(c) for c in (comps or [company])]
+
+    selected_ticker = selected_company.get("ticker")
+    if selected_ticker:
+        existing_tickers = {c.get("ticker") for c in comp_set}
+        if selected_ticker not in existing_tickers:
+            comp_set = [selected_company] + comp_set
+
+    private_company = {
+        "companyName": private.get("companyName") or private.get("company_name") or private.get("name") or "Target Company",
+        "description": private.get("description") or private.get("businessDescription") or "Not provided",
+        "sector": private.get("sector") or "N/A",
+        "subSector": private.get("subSector") or private.get("sub_sector") or private.get("stage") or "",
+        "geography": private.get("geography") or private.get("geo") or "N/A",
+        "revenueModel": private.get("revenueModel") or private.get("revenue_model") or "Not provided",
+        "customerType": private.get("customerType") or private.get("customer_type") or "Not provided",
+        "revenue": private.get("revenue") or private.get("revenue_m"),
+        "ebitda": private.get("ebitda") or private.get("ebitda_m"),
+        "grossMargin": private.get("grossMargin") or private.get("gross_margin_pct"),
+        "revenueGrowth": private.get("revenueGrowth") or private.get("rev_growth_pct"),
+        "employees": private.get("employees") or private.get("employeeCount"),
+    }
+
+    ticker = selected_company.get("ticker", "company")
+    output_path = os.path.join(tempfile.gettempdir(), f"valence-report-{ticker}.pdf")
+
+    generate_banker_report(
+        selected_company=selected_company,
+        comps=comp_set,
+        private_company=private_company,
+        output_path=output_path,
+    )
+
+    return FileResponse(
+        output_path,
+        media_type="application/pdf",
+        filename=f"valence-report-{ticker}.pdf",
+    )
+
+
+# ── Generate Consulting Slide Deck ────────────────────────────────────────────
+@app.post("/api/generate-deck")
+def generate_deck(req: DeckRequest):
+    try:
+        from pptx import Presentation
+        from pptx.enum.text import MSO_AUTO_SIZE, MSO_ANCHOR, PP_ALIGN
+        from pptx.util import Inches, Pt
+        from pptx.dml.color import RGBColor
+        from PIL import Image, ImageDraw, ImageFont
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="PowerPoint export is not installed on the backend. Install python-pptx and retry.",
+        ) from exc
+
+    company = req.selectedCompany or {}
+    comps = req.comps or []
+    private = req.privateCompany or {}
+    options = req.deckOptions or {}
+
+    colorways = {
+        "midnight": {
+            "name": "Midnight Cyan",
+            "bg": "07111F",
+            "panel": "0F1B2D",
+            "ink": "F8FAFC",
+            "muted": "94A3B8",
+            "accent": "22D3EE",
+            "accent2": "7C3AED",
+        },
+        "boardroom": {
+            "name": "Boardroom Blue",
+            "bg": "F6F8FB",
+            "panel": "FFFFFF",
+            "ink": "102033",
+            "muted": "5D6B7A",
+            "accent": "1D4ED8",
+            "accent2": "0F766E",
+        },
+        "emerald": {
+            "name": "Emerald Slate",
+            "bg": "071A16",
+            "panel": "0D2B24",
+            "ink": "ECFDF5",
+            "muted": "A7F3D0",
+            "accent": "10B981",
+            "accent2": "F59E0B",
+        },
+        "plum": {
+            "name": "Plum Strategy",
+            "bg": "170923",
+            "panel": "251137",
+            "ink": "FAF5FF",
+            "muted": "D8B4FE",
+            "accent": "A855F7",
+            "accent2": "22D3EE",
+        },
+    }
+
+    theme = colorways.get(options.get("colorway"), colorways["midnight"])
+    component_style = options.get("componentStyle", "strategy")
+    density = options.get("density", "balanced")
+    instructions = str(options.get("instructions") or "").strip()
+    selected_sections = options.get("sections") or {}
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+
+    def rgb(hex_value):
+        clean = str(hex_value).replace("#", "")
+        return RGBColor(int(clean[0:2], 16), int(clean[2:4], 16), int(clean[4:6], 16))
 
     def fmt_m(v):
         if v is None: return "N/A"
-        try: return f"${float(v):,.1f}M"
-        except: return "N/A"
+        try: return f"${float(v):,.0f}M"
+        except Exception: return "N/A"
 
     def fmt_b(v):
         if v is None: return "N/A"
         try: return f"${float(v):,.2f}B"
-        except: return "N/A"
+        except Exception: return "N/A"
 
     def fmt_x(v):
-        if v is None: return "—"
+        if v is None: return "N/A"
         try: return f"{float(v):.1f}x"
-        except: return "—"
+        except Exception: return "N/A"
 
     def fmt_pct(v):
-        if v is None: return "—"
+        if v is None: return "N/A"
         try: return f"{float(v):.1f}%"
-        except: return "—"
+        except Exception: return "N/A"
 
-    ticker       = company.get("ticker", "N/A")
-    name         = company.get("name", "N/A")
-    private_name = private.get("company_name", "Target Company")
-    rev_m        = company.get("revenue_m")
-    ebitda_m     = company.get("ebitda_m")
-    market_cap_b = company.get("market_cap_b")
-    ev_b         = company.get("ev_b")
-    ev_rev       = company.get("ev_rev")
-    ev_ebitda    = company.get("ev_ebitda")
-    ev_gp        = company.get("ev_gp")
-    match_score  = company.get("match_score")
-    gross_margin = company.get("gross_margin")
-    rev_growth   = company.get("rev_growth")
-    ebitda_margin = round(float(ebitda_m) / float(rev_m) * 100, 1) if ebitda_m and rev_m else None
+    def safe_text(value, fallback="N/A"):
+        if value is None or value == "":
+            return fallback
+        return str(value)
 
-    private_rev    = private.get("revenue_m")
-    private_ebitda = private.get("ebitda_m")
-    private_gm     = private.get("gross_margin_pct")
-    private_growth = private.get("rev_growth_pct")
+    def hex_to_tuple(hex_value):
+        clean = str(hex_value).replace("#", "")
+        return tuple(int(clean[i:i + 2], 16) for i in (0, 2, 4))
 
-    story = []
+    def fit_font_size(text, width, height, base_size, minimum=9):
+        text_len = len(str(text or ""))
+        capacity = max(18, int(width * height * 42))
+        if text_len <= capacity:
+            return base_size
+        scale = capacity / max(text_len, 1)
+        return max(minimum, int(base_size * max(0.62, scale)))
 
-    # ── Header ────────────────────────────────────────────────────────────────
-    story.append(Paragraph("Valence Comparable Company Report", title_style))
-    story.append(Paragraph(f"Target Company: {private_name}", body_style))
-    story.append(Paragraph(f"Selected Public Comparable: {name} ({ticker})", body_style))
-    story.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y')}", small_style))
-    story.append(Spacer(1, 0.2*inch))
+    def make_visual_panel(kind, title, points=None, width=1440, height=900):
+        bg = hex_to_tuple(theme["panel"])
+        accent = hex_to_tuple(theme["accent"])
+        accent2 = hex_to_tuple(theme["accent2"])
+        ink = hex_to_tuple(theme["ink"])
+        muted = hex_to_tuple(theme["muted"])
 
-    # ── Executive Summary ─────────────────────────────────────────────────────
-    story.append(Paragraph("Executive Summary", h2_style))
-    story.append(Paragraph(
-        f"This report presents a comparable company analysis for {private_name} using "
-        f"{name} ({ticker}) as a selected public comparable. The analysis reviews business "
-        f"similarity, financial metrics, trading multiples, and implied valuation calculations.",
-        body_style
-    ))
-    story.append(Spacer(1, 0.15*inch))
+        img = Image.new("RGB", (width, height), bg)
+        draw = ImageDraw.Draw(img, "RGBA")
 
-    # ── Private Company Inputs ────────────────────────────────────────────────
-    story.append(Paragraph("Private Company Inputs", h2_style))
-    priv_data = [
-        ["Metric", "Value"],
-        ["Company Name",    private_name],
-        ["Sector",          private.get("sector", "N/A")],
-        ["Geography",       private.get("geo", "N/A")],
-        ["Stage",           private.get("stage", "N/A")],
-        ["Revenue (TTM)",   fmt_m(private_rev)],
-        ["EBITDA (TTM)",    fmt_m(private_ebitda)],
-        ["Gross Margin",    fmt_pct(private_gm)],
-        ["Revenue Growth",  fmt_pct(private_growth)],
+        for y in range(height):
+            blend = y / max(height - 1, 1)
+            r = int(bg[0] * (1 - blend) + max(accent2[0] - 20, 0) * blend)
+            g = int(bg[1] * (1 - blend) + max(accent2[1] - 20, 0) * blend)
+            b = int(bg[2] * (1 - blend) + max(accent2[2] - 20, 0) * blend)
+            draw.line([(0, y), (width, y)], fill=(r, g, b, 255))
+
+        for i in range(-height, width, 110):
+            draw.line([(i, height), (i + height, 0)], fill=(*accent, 34), width=3)
+        for i in range(11):
+            x = 90 + i * ((width - 180) / 10)
+            draw.line([(x, 120), (x, height - 120)], fill=(*muted, 28), width=1)
+        for i in range(6):
+            y = 160 + i * ((height - 280) / 5)
+            draw.line([(90, y), (width - 90, y)], fill=(*muted, 28), width=1)
+
+        values = points or [0.25, 0.42, 0.34, 0.58, 0.52, 0.71, 0.64]
+        coords = []
+        for idx, value in enumerate(values):
+            x = 115 + idx * ((width - 230) / max(len(values) - 1, 1))
+            y = height - 155 - (height - 340) * max(0, min(float(value), 1))
+            coords.append((x, y))
+
+        if kind == "bars":
+            bar_w = (width - 260) / max(len(values), 1) * 0.62
+            for idx, value in enumerate(values):
+                x = 130 + idx * ((width - 260) / max(len(values), 1))
+                bar_h = (height - 330) * max(0.05, min(float(value), 1))
+                bar_color = accent if idx % 2 == 0 else accent2
+                draw.rounded_rectangle(
+                    [x, height - 145 - bar_h, x + bar_w, height - 145],
+                    radius=18,
+                    fill=(*bar_color, 210),
+                )
+        else:
+            for offset, alpha in [(18, 42), (9, 80), (0, 230)]:
+                shifted = [(x, y + offset) for x, y in coords]
+                draw.line(shifted, fill=(*accent, alpha), width=10 if offset else 6, joint="curve")
+            for x, y in coords:
+                draw.ellipse([x - 13, y - 13, x + 13, y + 13], fill=(*accent2, 245), outline=(*ink, 190), width=3)
+
+        font_title = ImageFont.load_default()
+        draw.rounded_rectangle([70, 56, width - 70, 122], radius=24, fill=(*bg, 170), outline=(*accent, 130), width=2)
+        draw.text((96, 78), title.upper(), font=font_title, fill=(*ink, 240))
+        draw.text((96, height - 88), "Valence generated market visual", font=font_title, fill=(*muted, 190))
+
+        buffer = io.BytesIO()
+        img.save(buffer, format="PNG")
+        buffer.seek(0)
+        return buffer
+
+    def add_visual(slide, kind, title, x, y, w, h, points=None):
+        panel = make_visual_panel(kind, title, points=points)
+        pic = slide.shapes.add_picture(panel, Inches(x), Inches(y), Inches(w), Inches(h))
+        return pic
+
+    def add_box(slide, x, y, w, h, fill=None, line=None, radius=False):
+        shape_type = 5 if radius else 1
+        box = slide.shapes.add_shape(shape_type, Inches(x), Inches(y), Inches(w), Inches(h))
+        box.fill.solid()
+        box.fill.fore_color.rgb = rgb(fill or theme["panel"])
+        box.line.color.rgb = rgb(line or theme["accent"])
+        box.line.transparency = 55
+        return box
+
+    def add_text(slide, text, x, y, w, h, size=18, bold=False, color=None, align=None, fit=True):
+        tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+        tf = tb.text_frame
+        tf.clear()
+        tf.margin_left = Inches(0.04)
+        tf.margin_right = Inches(0.04)
+        tf.margin_top = Inches(0.02)
+        tf.margin_bottom = Inches(0.02)
+        tf.word_wrap = True
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        if fit:
+            tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        p = tf.paragraphs[0]
+        p.text = str(text)
+        if align:
+            p.alignment = align
+        run = p.runs[0]
+        run.font.name = "Aptos"
+        run.font.size = Pt(fit_font_size(text, w, h, size) if fit else size)
+        run.font.bold = bold
+        run.font.color.rgb = rgb(color or theme["ink"])
+        return tb
+
+    def add_bullets(slide, bullets, x, y, w, h, size=16, color=None):
+        tb = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+        tf = tb.text_frame
+        tf.clear()
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.TEXT_TO_FIT_SHAPE
+        tf.margin_left = Inches(0.08)
+        tf.margin_right = Inches(0.08)
+        tf.margin_top = Inches(0.04)
+        tf.margin_bottom = Inches(0.04)
+        total_text = " ".join(str(b) for b in bullets if b)
+        bullet_size = fit_font_size(total_text, w, h, size, minimum=10)
+        for index, bullet in enumerate([b for b in bullets if b]):
+            p = tf.paragraphs[0] if index == 0 else tf.add_paragraph()
+            p.text = f"• {str(bullet)}"
+            p.level = 0
+            p.font.name = "Aptos"
+            p.font.size = Pt(bullet_size)
+            p.font.color.rgb = rgb(color or theme["ink"])
+            p.space_after = Pt(8)
+        return tb
+
+    def add_header(slide, title, subtitle=""):
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = rgb(theme["bg"])
+        add_text(slide, "VALENCE", 0.55, 0.25, 1.4, 0.28, 9, True, theme["accent"])
+        add_text(slide, title, 0.55, 0.58, 8.8, 0.55, 27, True)
+        if subtitle:
+            add_text(slide, subtitle, 0.58, 1.12, 8.4, 0.28, 11, False, theme["muted"])
+        add_box(slide, 11.55, 0.28, 1.15, 0.08, theme["accent"], theme["accent"])
+
+    def add_footer(slide, page):
+        add_text(slide, f"{theme['name']} | {component_style.title()} layout", 0.55, 7.12, 4.2, 0.22, 8, False, theme["muted"])
+        add_text(slide, str(page).zfill(2), 12.25, 7.08, 0.45, 0.24, 9, True, theme["accent"], PP_ALIGN.RIGHT)
+
+    def metric_card(slide, label, value, x, y, w=2.2, accent=None):
+        add_box(slide, x, y, w, 0.92, theme["panel"], accent or theme["accent"], True)
+        add_text(slide, label.upper(), x + 0.14, y + 0.12, w - 0.28, 0.18, 7, True, theme["muted"])
+        add_text(slide, value, x + 0.14, y + 0.36, w - 0.28, 0.32, 18, True, accent or theme["ink"])
+
+    ticker = safe_text(company.get("ticker") or company.get("symbol"), "N/A")
+    name = safe_text(company.get("name") or company.get("companyName") or company.get("company"), ticker)
+    private_name = safe_text(private.get("company_name") or private.get("companyName") or private.get("name"), "Target Company")
+    sector = safe_text(req.sector_label or private.get("sector") or company.get("sector"), "Selected sector")
+    valuation_range = req.overall_range or {}
+    top_comps = comps[:8]
+    median_ev_rev = (req.multiples or {}).get("ev_rev", {}).get("median")
+    median_ev_ebitda = (req.multiples or {}).get("ev_ebitda", {}).get("median")
+
+    def normalized_points(values, fallback=None):
+        nums = []
+        for value in values:
+            try:
+                if value is not None:
+                    nums.append(float(value))
+            except Exception:
+                continue
+        if not nums:
+            return fallback or [0.18, 0.34, 0.29, 0.55, 0.47, 0.74, 0.66]
+        low = min(nums)
+        high = max(nums)
+        spread = high - low or 1
+        return [0.16 + ((value - low) / spread) * 0.68 for value in nums]
+
+    slide_num = 1
+
+    slide = prs.slides.add_slide(blank)
+    slide.background.fill.solid()
+    slide.background.fill.fore_color.rgb = rgb(theme["bg"])
+    add_box(slide, 0.0, 0.0, 13.333, 7.5, theme["bg"], theme["bg"])
+    add_box(slide, 8.55, 0.0, 4.8, 7.5, theme["panel"], theme["panel"])
+    add_visual(
+        slide,
+        "line",
+        "Comparable valuation signal",
+        0.72,
+        4.05,
+        6.95,
+        2.42,
+        normalized_points([comp.get("ev_rev") for comp in top_comps]),
+    )
+    add_text(slide, "Consulting Competition Deck", 0.72, 0.72, 4.6, 0.32, 13, True, theme["accent"])
+    add_text(slide, f"{private_name} comparable company analysis", 0.72, 1.2, 7.0, 1.18, 36, True)
+    add_text(slide, "Valuation, peer benchmarking, strategic implications, and judge-ready talking points for a consulting team.", 0.78, 2.58, 6.35, 0.72, 17, False, theme["muted"])
+    metric_card(slide, "Lead public comp", f"{name} ({ticker})", 8.95, 1.05, 3.55, theme["accent"])
+    metric_card(slide, "Peer set", f"{len(top_comps) or len(comps)} companies", 8.95, 2.18, 3.55, theme["accent2"])
+    metric_card(slide, "Implied EV range", f"{fmt_m(valuation_range.get('low'))} - {fmt_m(valuation_range.get('high'))}", 8.95, 3.31, 3.55, theme["accent"])
+    metric_card(slide, "Median EV / Revenue", fmt_x(median_ev_rev), 8.95, 4.44, 3.55, theme["accent2"])
+    add_text(slide, "Generated by Valence", 0.78, 6.94, 2.6, 0.25, 10, True, theme["muted"])
+    add_footer(slide, slide_num)
+    slide_num += 1
+
+    if selected_sections.get("overview", True):
+        slide = prs.slides.add_slide(blank)
+        add_header(slide, "Executive answer", f"What the team should say in the first 90 seconds.")
+        thesis = [
+            f"{private_name} screens against {sector} comps, with {name} as the closest benchmark.",
+            f"The selected peer set implies an enterprise value range of {fmt_m(valuation_range.get('low'))} to {fmt_m(valuation_range.get('high'))}.",
+            "The story should balance comparability with caveats around growth, margin profile, and scale.",
+            "Competition framing: defend the peer set, triangulate valuation, then translate the math into strategic options.",
+        ]
+        add_box(slide, 0.72, 1.42, 6.18, 4.42, theme["panel"], theme["accent"], True)
+        add_bullets(slide, thesis, 0.95, 1.72, 5.62, 3.62, 16)
+        metric_card(slide, "Target revenue", fmt_m(private.get("revenue_m") or private.get("revenue")), 7.25, 1.55, 2.45, theme["accent"])
+        metric_card(slide, "Target EBITDA", fmt_m(private.get("ebitda_m") or private.get("ebitda")), 10.0, 1.55, 2.45, theme["accent2"])
+        metric_card(slide, "Revenue growth", fmt_pct(private.get("rev_growth_pct") or private.get("revenueGrowth")), 7.25, 2.8, 2.45, theme["accent2"])
+        metric_card(slide, "Gross margin", fmt_pct(private.get("gross_margin_pct") or private.get("grossMargin")), 10.0, 2.8, 2.45, theme["accent"])
+        add_visual(
+            slide,
+            "bars",
+            "Target profile snapshot",
+            7.25,
+            4.05,
+            5.22,
+            1.72,
+            normalized_points([
+                private.get("revenue_m") or private.get("revenue"),
+                private.get("ebitda_m") or private.get("ebitda"),
+                private.get("rev_growth_pct") or private.get("revenueGrowth"),
+                private.get("gross_margin_pct") or private.get("grossMargin"),
+            ]),
+        )
+        add_box(slide, 7.25, 5.98, 5.2, 0.62, theme["panel"], theme["accent"], True)
+        add_text(slide, "Use as a briefing pack: narrative, valuation evidence, peer defense, risks, and workplan.", 7.46, 6.09, 4.75, 0.32, 12, False, theme["ink"])
+        add_footer(slide, slide_num)
+        slide_num += 1
+
+    if selected_sections.get("valuation", True):
+        slide = prs.slides.add_slide(blank)
+        add_header(slide, "Valuation bridge", "Multiple-based range with a consulting-style recommendation frame.")
+        methods = list((req.implied or {}).values())
+        if not methods:
+            methods = [
+                {"method": "EV / Revenue", "low": None, "mid": None, "high": None, "label": "Add target revenue and peer multiples"},
+            ]
+        add_visual(
+            slide,
+            "line",
+            "Valuation bridge visual",
+            0.75,
+            4.9,
+            5.15,
+            1.35,
+            normalized_points([method.get("mid") for method in methods]),
+        )
+        for idx, method in enumerate(methods[:4]):
+            y = 1.52 + idx * 0.9
+            add_box(slide, 0.75, y, 11.85, 0.68, theme["panel"], theme["accent" if idx % 2 == 0 else "accent2"], True)
+            add_text(slide, safe_text(method.get("method"), "Valuation method"), 0.98, y + 0.14, 2.25, 0.26, 13, True)
+            add_text(slide, safe_text(method.get("label"), "Multiple x metric"), 3.35, y + 0.16, 2.4, 0.24, 11, False, theme["muted"])
+            add_text(slide, fmt_m(method.get("low")), 6.25, y + 0.14, 1.25, 0.26, 14, True, theme["muted"], PP_ALIGN.RIGHT)
+            add_text(slide, fmt_m(method.get("mid")), 8.0, y + 0.09, 1.5, 0.32, 19, True, theme["accent"], PP_ALIGN.CENTER)
+            add_text(slide, fmt_m(method.get("high")), 10.05, y + 0.14, 1.25, 0.26, 14, True, theme["ink"], PP_ALIGN.RIGHT)
+        add_box(slide, 6.25, 5.22, 6.35, 0.78, theme["accent"], theme["accent"], True)
+        add_text(slide, f"Overall indicated enterprise value: {fmt_m(valuation_range.get('low'))} - {fmt_m(valuation_range.get('high'))}", 6.52, 5.4, 5.8, 0.32, 17, True, theme["bg"], PP_ALIGN.CENTER)
+        add_footer(slide, slide_num)
+        slide_num += 1
+
+    if selected_sections.get("comps", True):
+        slide = prs.slides.add_slide(blank)
+        add_header(slide, "Peer landscape", "Selected public companies ranked by fit and valuation relevance.")
+        headers = ["Ticker", "Company", "Match", "EV/Rev", "EV/EBITDA", "Growth", "GM"]
+        col_x = [0.72, 1.65, 5.55, 6.48, 7.62, 9.0, 10.0]
+        widths = [0.72, 3.45, 0.78, 0.78, 1.0, 0.74, 0.74]
+        for i, header in enumerate(headers):
+            add_text(slide, header.upper(), col_x[i], 1.42, widths[i], 0.2, 8, True, theme["accent"])
+        for idx, comp in enumerate(top_comps[:7]):
+            y = 1.84 + idx * 0.62
+            add_box(slide, 0.58, y - 0.08, 10.94, 0.48, theme["panel"], theme["panel"], True)
+            values = [
+                safe_text(comp.get("ticker") or comp.get("symbol")),
+                safe_text(comp.get("name") or comp.get("company")),
+                fmt_pct(comp.get("match_score")),
+                fmt_x(comp.get("ev_rev")),
+                fmt_x(comp.get("ev_ebitda")),
+                fmt_pct(comp.get("rev_growth")),
+                fmt_pct(comp.get("gross_margin")),
+            ]
+            for i, value in enumerate(values):
+                add_text(slide, value, col_x[i], y, widths[i], 0.22, 10 if i else 11, i in [0, 2], theme["ink" if i != 0 else "accent"])
+        add_box(slide, 0.72, 6.0, 11.55, 0.62, theme["accent2"], theme["accent2"], True)
+        add_text(slide, "Peer defense: explain why each company belongs, then acknowledge scale, growth, and margin differences.", 1.0, 6.13, 10.95, 0.3, 13, True, theme["bg"], PP_ALIGN.CENTER)
+        add_footer(slide, slide_num)
+        slide_num += 1
+
+    if selected_sections.get("multiples", True):
+        slide = prs.slides.add_slide(blank)
+        add_header(slide, "Trading multiples dashboard", "The evidence judges will expect to see before the recommendation.")
+        multiple_rows = [
+            ("EV / Revenue", (req.multiples or {}).get("ev_rev")),
+            ("EV / EBITDA", (req.multiples or {}).get("ev_ebitda")),
+            ("EV / Gross Profit", (req.multiples or {}).get("ev_gp")),
+            ("P / E", (req.multiples or {}).get("pe")),
+        ]
+        add_visual(
+            slide,
+            "bars",
+            "Multiple dispersion",
+            0.75,
+            5.72,
+            4.25,
+            0.9,
+            normalized_points([(data or {}).get("median") for _, data in multiple_rows]),
+        )
+        for idx, (label, data) in enumerate(multiple_rows):
+            x = 0.75 + (idx % 2) * 6.0
+            y = 1.55 + (idx // 2) * 2.25
+            add_box(slide, x, y, 5.55, 1.7, theme["panel"], theme["accent" if idx % 2 == 0 else "accent2"], True)
+            add_text(slide, label, x + 0.25, y + 0.22, 2.7, 0.32, 17, True, theme["accent" if idx % 2 == 0 else "accent2"])
+            add_text(slide, f"Median {fmt_x((data or {}).get('median'))}", x + 0.25, y + 0.68, 2.5, 0.34, 22, True)
+            add_text(slide, f"IQR: {fmt_x((data or {}).get('p25'))} - {fmt_x((data or {}).get('p75'))}", x + 3.05, y + 0.72, 2.05, 0.28, 14, False, theme["muted"])
+            add_text(slide, f"Range: {fmt_x((data or {}).get('min'))} - {fmt_x((data or {}).get('max'))}", x + 3.05, y + 1.05, 2.05, 0.24, 12, False, theme["muted"])
+        add_box(slide, 5.25, 5.85, 7.05, 0.64, theme["panel"], theme["accent"], True)
+        add_text(slide, "Talk track: median is the base case; IQR is the defensible valuation corridor.", 5.55, 5.99, 6.4, 0.28, 13, False, theme["ink"])
+        add_footer(slide, slide_num)
+        slide_num += 1
+
+    slide = prs.slides.add_slide(blank)
+    add_header(slide, "Competition playbook", "How to turn the analysis into a winning room narrative.")
+    workplan = [
+        "Open with the answer: valuation range, recommended midpoint, and why the peer set is credible.",
+        "Show the target profile before the comps so judges understand what the benchmark must explain.",
+        "Use the multiples dashboard to defend method selection and avoid over-relying on one metric.",
+        "Translate valuation into strategic implications: pricing, funding, acquisition logic, or growth priorities.",
+        "Close with risks and diligence questions instead of pretending the model is perfect.",
     ]
-    pt = Table(priv_data, colWidths=[2.5*inch, 4*inch])
-    pt.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), purple),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f3ff")]),
-        ("GRID",          (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-    ]))
-    story.append(pt)
-    story.append(Spacer(1, 0.2*inch))
+    if density == "detailed":
+        workplan.append("Assign one teammate to own valuation, one to own market story, and one to own Q&A defense.")
+    add_box(slide, 0.75, 1.5, 6.65, 4.85, theme["panel"], theme["accent"], True)
+    add_bullets(slide, workplan, 0.98, 1.82, 6.12, 3.98, 15)
+    add_visual(slide, "line", "Presentation arc", 7.72, 1.5, 4.65, 1.8, [0.2, 0.38, 0.52, 0.7, 0.86])
+    add_box(slide, 7.72, 3.62, 4.65, 2.72, theme["panel"], theme["accent2"], True)
+    add_text(slide, "Custom deck brief", 8.02, 3.9, 2.8, 0.32, 15, True, theme["accent2"])
+    add_text(slide, instructions or "No custom instructions were provided. The deck uses Valence's default consulting competition structure.", 8.02, 4.34, 3.92, 1.52, 13, False, theme["ink"])
+    add_footer(slide, slide_num)
+    slide_num += 1
 
-    # ── Selected Comparable Overview ──────────────────────────────────────────
-    story.append(Paragraph("Selected Comparable Company Overview", h2_style))
-    overview_data = [
-        ["Metric", "Value"],
-        ["Company",         name],
-        ["Ticker",          ticker],
-        ["Sub-sector",      company.get("sub", "N/A")],
-        ["Revenue (TTM)",   fmt_m(rev_m)],
-        ["EBITDA (TTM)",    fmt_m(ebitda_m)],
-        ["EBITDA Margin",   fmt_pct(ebitda_margin)],
-        ["Gross Margin",    fmt_pct(gross_margin)],
-        ["Revenue Growth",  fmt_pct(rev_growth)],
-        ["Market Cap",      fmt_b(market_cap_b)],
-        ["Enterprise Value",fmt_b(ev_b)],
-        ["EV / Revenue",    fmt_x(ev_rev)],
-        ["EV / EBITDA",     fmt_x(ev_ebitda)],
-        ["EV / Gross Profit",fmt_x(ev_gp)],
-        ["Match Score",     f"{match_score}%" if match_score else "N/A"],
-    ]
-    t = Table(overview_data, colWidths=[2.5*inch, 4*inch])
-    t.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), purple),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f3ff")]),
-        ("GRID",          (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-    ]))
-    story.append(t)
-    story.append(Spacer(1, 0.2*inch))
+    if selected_sections.get("market", False):
+        slide = prs.slides.add_slide(blank)
+        add_header(slide, "Appendix: diligence questions", "Questions the team should be ready to answer.")
+        add_bullets(slide, [
+            "Which peers should be excluded because of business model, scale, geography, or profitability differences?",
+            "How sensitive is valuation to revenue growth, EBITDA margin, and gross margin assumptions?",
+            "What strategic buyer or investor would pay a premium, and what synergy logic supports it?",
+            "What data would change the recommendation if the team had another week of diligence?",
+        ], 0.85, 1.55, 10.8, 3.8, 19)
+        add_footer(slide, slide_num)
+        slide_num += 1
 
-    # ── Full Comp Set ─────────────────────────────────────────────────────────
-    story.append(Paragraph("Comparable Company Set", h2_style))
-    comp_rows = [["Ticker", "Company", "Revenue", "EBITDA", "Gross Margin", "Rev Growth", "EV/Rev", "EV/EBITDA", "Match"]]
-    for c in comps:
-        comp_rows.append([
-            c.get("ticker", ""),
-            c.get("name", ""),
-            fmt_m(c.get("revenue_m")),
-            fmt_m(c.get("ebitda_m")),
-            fmt_pct(c.get("gross_margin")),
-            fmt_pct(c.get("rev_growth")),
-            fmt_x(c.get("ev_rev")),
-            fmt_x(c.get("ev_ebitda")),
-            f"{c.get('match_score', '')}%",
-        ])
-    ct = Table(comp_rows, colWidths=[0.55*inch, 1.7*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.8*inch, 0.65*inch, 0.8*inch, 0.6*inch])
-    ct.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), purple),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 7.5),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f3ff")]),
-        ("GRID",          (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 5),
-    ]))
-    story.append(ct)
-    story.append(Spacer(1, 0.2*inch))
-
-    # ── Valuation Analysis ────────────────────────────────────────────────────
-    story.append(Paragraph("Valuation Analysis", h2_style))
-    val_rows = [["Method", "Private Co. Metric", "Selected Multiple", "Implied Enterprise Value"]]
-    if ev_rev and private_rev:
-        implied_ev_rev = round(float(ev_rev) * float(private_rev), 1)
-        val_rows.append(["EV / Revenue", fmt_m(private_rev), fmt_x(ev_rev), fmt_m(implied_ev_rev)])
-    if ev_ebitda and private_ebitda:
-        implied_ev_ebitda = round(float(ev_ebitda) * float(private_ebitda), 1)
-        val_rows.append(["EV / EBITDA", fmt_m(private_ebitda), fmt_x(ev_ebitda), fmt_m(implied_ev_ebitda)])
-    if ev_gp and private_gm and private_rev:
-        gp = float(private_rev) * float(private_gm) / 100
-        implied_ev_gp = round(float(ev_gp) * gp, 1)
-        val_rows.append(["EV / Gross Profit", fmt_m(gp), fmt_x(ev_gp), fmt_m(implied_ev_gp)])
-
-    vt = Table(val_rows, colWidths=[1.5*inch, 1.7*inch, 1.7*inch, 1.9*inch])
-    vt.setStyle(TableStyle([
-        ("BACKGROUND",    (0, 0), (-1, 0), purple),
-        ("TEXTCOLOR",     (0, 0), (-1, 0), colors.white),
-        ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, -1), 9),
-        ("ROWBACKGROUNDS",(0, 1), (-1, -1), [colors.white, colors.HexColor("#f5f3ff")]),
-        ("GRID",          (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
-        ("TOPPADDING",    (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-        ("LEFTPADDING",   (0, 0), (-1, -1), 8),
-    ]))
-    story.append(vt)
-    story.append(Spacer(1, 0.15*inch))
-
-    # ── Calculation Walkthrough ───────────────────────────────────────────────
-    story.append(Paragraph("Calculation Walkthrough", h2_style))
-    if ev_rev and private_rev:
-        story.append(Paragraph(
-            f"<b>EV / Revenue Method:</b> {private_name}'s revenue of {fmt_m(private_rev)} multiplied "
-            f"by {name}'s EV/Revenue multiple of {fmt_x(ev_rev)} implies an enterprise value of "
-            f"{fmt_m(round(float(ev_rev)*float(private_rev),1))}.",
-            body_style
-        ))
-    if ev_ebitda and private_ebitda:
-        story.append(Paragraph(
-            f"<b>EV / EBITDA Method:</b> {private_name}'s EBITDA of {fmt_m(private_ebitda)} multiplied "
-            f"by {name}'s EV/EBITDA multiple of {fmt_x(ev_ebitda)} implies an enterprise value of "
-            f"{fmt_m(round(float(ev_ebitda)*float(private_ebitda),1))}.",
-            body_style
-        ))
-    if ev_gp and private_gm and private_rev:
-        gp = float(private_rev) * float(private_gm) / 100
-        story.append(Paragraph(
-            f"<b>EV / Gross Profit Method:</b> {private_name}'s gross profit of {fmt_m(gp)} "
-            f"(revenue {fmt_m(private_rev)} x {fmt_pct(private_gm)} margin) multiplied by "
-            f"{name}'s EV/GP multiple of {fmt_x(ev_gp)} implies an enterprise value of "
-            f"{fmt_m(round(float(ev_gp)*gp,1))}.",
-            body_style
-        ))
-    story.append(Spacer(1, 0.15*inch))
-
-    # ── Footer ────────────────────────────────────────────────────────────────
-    story.append(Paragraph("Important Notes", h2_style))
-    story.append(Paragraph(
-        "This report is automatically generated by Valence. Valuation outputs should be reviewed "
-        "carefully and do not constitute investment advice. Results depend on the quality of the "
-        "peer set, accuracy of financial data, and assumptions provided for the private company.",
-        body_style
-    ))
-    story.append(Spacer(1, 0.1*inch))
-    story.append(Paragraph("Generated by Valence", small_style))
-
-    doc.build(story)
+    filename_ticker = "".join(ch for ch in ticker.upper() if ch.isalnum() or ch in ["_", "-"]) or "COMPANY"
+    buffer = io.BytesIO()
+    prs.save(buffer)
     buffer.seek(0)
 
     return StreamingResponse(
         buffer,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="valence-report-{ticker}.pdf"'}
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="valence-deck-{filename_ticker}.pptx"'}
     )
 
 

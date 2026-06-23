@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { apiUrl } from "../api";
 import './ResultsPanel.css';
 
 function toNumber(value) {
@@ -56,6 +57,12 @@ function fmtPct(n) {
 function fmtX(n) {
   const v = toNumber(n);
   return v !== null ? `${v.toFixed(1)}×` : '—';
+}
+
+function sanitizeFileName(value) {
+  return String(value || "company")
+    .toUpperCase()
+    .replace(/[^A-Z0-9_-]/g, "");
 }
 
 function MatchBadge({ score }) {
@@ -190,7 +197,7 @@ function CompsTable({
   );
 }
 
-function ReportBuilder({ selectedComps, privateCompany, overallRange }) {
+function ReportBuilder({ selectedComps, privateCompany, overallRange, results }) {
   const [sections, setSections] = useState({
     overview: true,
     comps: true,
@@ -198,15 +205,99 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange }) {
     valuation: true,
     market: false,
   });
+  const [colorway, setColorway] = useState("midnight");
+  const [componentStyle, setComponentStyle] = useState("strategy");
+  const [density, setDensity] = useState("balanced");
+  const [instructions, setInstructions] = useState(
+    "Make this competition-ready: clear recommendation, strong valuation defense, judge Q&A prep, and polished consulting visuals."
+  );
+  const [downloading, setDownloading] = useState("");
 
   const enabledSections = Object.values(sections).filter(Boolean).length;
   const companyName = privateCompany?.company_name || "Target company";
+  const leadComp = selectedComps[0] || {};
 
   const toggleSection = (key) => {
     setSections((current) => ({
       ...current,
       [key]: !current[key],
     }));
+  };
+
+  const buildPayload = () => {
+    const selectedCompany = selectedComps[0] || {};
+
+    return {
+      selectedCompany,
+      comps: selectedComps,
+      privateCompany: privateCompany || {},
+      multiples: results?.multiples || {},
+      implied: results?.implied || {},
+      overall_range: results?.overall_range || null,
+      sector_label: results?.sector_label || "",
+      comps_count: selectedComps.length,
+      deckOptions: {
+        sections,
+        colorway,
+        componentStyle,
+        density,
+        instructions,
+      },
+    };
+  };
+
+  const downloadFile = async (kind) => {
+    if (!selectedComps.length) return;
+
+    try {
+      setDownloading(kind);
+
+      const response = await fetch(apiUrl(kind === "deck" ? "/api/generate-deck" : "/api/generate-report"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(buildPayload()),
+      });
+
+      if (!response.ok) {
+        let message = `${kind === "deck" ? "Slide deck" : "Report"} download failed`;
+
+        try {
+          const errorText = await response.text();
+          if (errorText) message = errorText;
+        } catch {
+          // Keep the default message.
+        }
+
+        throw new Error(message);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const ticker = sanitizeFileName(
+        leadComp.ticker || leadComp.symbol || leadComp.name || privateCompany?.company_name
+      );
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = kind === "deck"
+        ? `valence-deck-${ticker}.pptx`
+        : `valence-report-${ticker}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      alert(
+        kind === "deck"
+          ? "Could not download the PowerPoint deck. Make sure the backend has python-pptx installed and is running."
+          : "Could not download the report. Make sure the backend is running."
+      );
+    } finally {
+      setDownloading("");
+    }
   };
 
   const sectionRows = [
@@ -220,7 +311,7 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange }) {
   return (
     <aside className="report-builder">
       <div className="report-builder-head">
-        <span>Report Builder</span>
+        <span>Export Studio</span>
         <strong>{enabledSections} sections</strong>
       </div>
 
@@ -249,15 +340,76 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange }) {
         ))}
       </div>
 
+      <div className="deck-customizer">
+        <label>
+          <span>Colorway</span>
+          <select value={colorway} onChange={(event) => setColorway(event.target.value)}>
+            <option value="midnight">Midnight cyan</option>
+            <option value="boardroom">Boardroom blue</option>
+            <option value="emerald">Emerald slate</option>
+            <option value="plum">Plum strategy</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Components</span>
+          <select value={componentStyle} onChange={(event) => setComponentStyle(event.target.value)}>
+            <option value="strategy">Strategy tiles</option>
+            <option value="metrics">Metric bands</option>
+            <option value="mosaic">Mosaic brief</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Detail level</span>
+          <select value={density} onChange={(event) => setDensity(event.target.value)}>
+            <option value="concise">Concise</option>
+            <option value="balanced">Balanced</option>
+            <option value="detailed">Detailed</option>
+          </select>
+        </label>
+      </div>
+
+      <label className="ai-deck-brief">
+        <span>AI deck brief</span>
+        <textarea
+          value={instructions}
+          onChange={(event) => setInstructions(event.target.value)}
+          rows={5}
+          placeholder="Tell Valence how to tailor the deck: competition angle, tone, judges, must-have slides, color direction, or team strategy."
+        />
+      </label>
+
       <div className="report-preview-card">
-        <span>Preview</span>
+        <span>Deck Preview</span>
         <h3>{companyName} Comp Set Report</h3>
         <p>
-          Peer universe curated to {selectedComps.length || "selected"} public companies
+          A consulting-style slide deck with {selectedComps.length || "selected"} public comps,
+          {` ${colorway.replace("-", " ")} colors, ${componentStyle} components, and ${density} detail`}
           {overallRange
             ? ` with an implied EV range of ${fmtM(overallRange.low)} to ${fmtM(overallRange.high)}.`
             : "."}
         </p>
+      </div>
+
+      <div className="export-actions">
+        <button
+          type="button"
+          className="report-btn secondary"
+          onClick={() => downloadFile("report")}
+          disabled={!selectedComps.length || downloading !== ""}
+        >
+          {downloading === "report" ? "Building PDF..." : "Download PDF"}
+        </button>
+
+        <button
+          type="button"
+          className="report-btn deck"
+          onClick={() => downloadFile("deck")}
+          disabled={!selectedComps.length || downloading !== ""}
+        >
+          {downloading === "deck" ? "Building deck..." : "Download PowerPoint"}
+        </button>
       </div>
     </aside>
   );
@@ -494,6 +646,7 @@ export default function ResultsPanel({
               selectedComps={selectedComps}
               privateCompany={privateCompany}
               overallRange={overall_range}
+              results={results}
             />
           </div>
         )}
