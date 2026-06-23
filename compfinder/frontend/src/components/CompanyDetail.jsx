@@ -96,6 +96,27 @@ function readSavedResults(location) {
   }
 }
 
+function DetailPageShell({ children }) {
+  return (
+    <div className="company-detail-page app">
+      <nav className="nav">
+        <div className="nav-left">
+          <div className="logo">
+            <img src="/logo4.png" alt="Valence logo" />
+          </div>
+
+          <span className="brand">Valence</span>
+          <span className="nav-pill">Beta</span>
+        </div>
+
+        <div className="nav-right">Company intelligence - Report builder</div>
+      </nav>
+
+      <main className="company-detail-shell">{children}</main>
+    </div>
+  );
+}
+
 export default function CompanyDetail() {
   const { ticker } = useParams();
   const location = useLocation();
@@ -141,37 +162,44 @@ export default function CompanyDetail() {
 
   if (loading) {
     return (
-      <div className="company-detail-page">
+      <DetailPageShell>
         <Link to="/" className="back-link">
-          ← Back to search
+          Back to analysis workbench
         </Link>
 
-        <p>Loading company details...</p>
-      </div>
+        <div className="detail-state-panel">
+          <div className="detail-spinner" aria-hidden="true" />
+          <p>Loading company details...</p>
+        </div>
+      </DetailPageShell>
     );
   }
 
   if (error) {
     return (
-      <div className="company-detail-page">
+      <DetailPageShell>
         <Link to="/" className="back-link">
-          ← Back to search
+          Back to analysis workbench
         </Link>
 
-        <p className="error-text">{error}</p>
-      </div>
+        <div className="detail-state-panel">
+          <p className="error-text">{error}</p>
+        </div>
+      </DetailPageShell>
     );
   }
 
   if (!data || !data.company) {
     return (
-      <div className="company-detail-page">
+      <DetailPageShell>
         <Link to="/" className="back-link">
-          ← Back to search
+          Back to analysis workbench
         </Link>
 
-        <p className="error-text">No company data found.</p>
-      </div>
+        <div className="detail-state-panel">
+          <p className="error-text">No company data found.</p>
+        </div>
+      </DetailPageShell>
     );
   }
 
@@ -358,16 +386,17 @@ export default function CompanyDetail() {
       overall_range: null,
       sector_label: selectedCompanyForReport.sector || selectedCompanyForReport.sub || "selected sector",
       comps_count: compsForReport.length,
-    };
+  };
 
   return (
-    <div className="company-detail-page">
+    <DetailPageShell>
       <Link to="/" className="back-link">
-        ← Back to search
+        Back to analysis workbench
       </Link>
 
       <div className="company-header">
         <div className="company-title-block">
+          <span className="detail-kicker">Public company snapshot</span>
           <h1>{company.name}</h1>
           <p>
             {company.ticker} • CIK {company.cik}
@@ -389,7 +418,7 @@ export default function CompanyDetail() {
         </div>
       </div>
 
-      <h2>Stock Snapshot</h2>
+      <h2 className="detail-section-title">Stock Snapshot</h2>
 
       <div className="metric-grid">
         <div className="metric-card">
@@ -418,7 +447,7 @@ export default function CompanyDetail() {
         </div>
       </div>
 
-      <h2>Latest Financials</h2>
+      <h2 className="detail-section-title">Latest Financials</h2>
 
       <div className="financial-table">
         <div>
@@ -454,7 +483,7 @@ export default function CompanyDetail() {
 
       {compsForReport.length >= 2 && (
         <>
-          <h2>Peer Comparison</h2>
+          <h2 className="detail-section-title">Peer Comparison</h2>
 
           <div className="peer-comparison-table">
             <div className="peer-row peer-header">
@@ -482,7 +511,7 @@ export default function CompanyDetail() {
         </>
       )}
 
-      <h2>SEC Reports</h2>
+      <h2 className="detail-section-title">SEC Reports</h2>
 
       <div className="filings-table">
         <div className="filings-row filings-header">
@@ -503,6 +532,6 @@ export default function CompanyDetail() {
           </div>
         ))}
       </div>
-    </div>
+    </DetailPageShell>
   );
 }

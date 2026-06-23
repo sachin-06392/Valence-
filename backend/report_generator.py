@@ -24,20 +24,34 @@ from reportlab.platypus import (
 )
 
 
-# DARKER VALENCE / BANKING STYLE COLORS
-PURPLE = colors.HexColor("#2B124C")
-PURPLE_DARK = colors.HexColor("#1A0B2E")
-PURPLE_SOFT = colors.HexColor("#4C1D95")
+# Valence terminal-inspired report palette.
+INK = colors.HexColor("#0F172A")
+NAVY = colors.HexColor("#020617")
+PANEL = colors.HexColor("#0B1120")
+PANEL_SOFT = colors.HexColor("#111827")
+CYAN = colors.HexColor("#22D3EE")
+CYAN_DARK = colors.HexColor("#0891B2")
+CYAN_SOFT = colors.HexColor("#ECFEFF")
+PURPLE = colors.HexColor("#4C1D95")
+PURPLE_DARK = colors.HexColor("#2B124C")
+PURPLE_SOFT = colors.HexColor("#7C3AED")
+SLATE = colors.HexColor("#334155")
+GRAY = colors.HexColor("#64748B")
+MUTED = colors.HexColor("#94A3B8")
+LIGHT_GRAY = colors.HexColor("#F8FAFC")
+BORDER = colors.HexColor("#CBD5E1")
+BORDER_SOFT = colors.HexColor("#E2E8F0")
+WARNING_BG = colors.HexColor("#FFF7D6")
+WARNING_BORDER = colors.HexColor("#F59E0B")
+DARK = INK
 
-DARK = colors.HexColor("#111827")
-GRAY = colors.HexColor("#6B7280")
-LIGHT_GRAY = colors.HexColor("#F3F4F6")
-BORDER = colors.HexColor("#D1D5DB")
-WARNING_BG = colors.HexColor("#FFF3C4")
-
-CHART_PURPLE = "#2B124C"
-CHART_PURPLE_SOFT = "#4C1D95"
-CHART_DARK = "#111827"
+CHART_CYAN = "#0891B2"
+CHART_CYAN_SOFT = "#67E8F9"
+CHART_PURPLE = "#7C3AED"
+CHART_PURPLE_DARK = "#4C1D95"
+CHART_DARK = "#0F172A"
+CHART_GRID = "#E2E8F0"
+PAGE_WIDTH = 7.1 * inch
 
 
 def safe_get(d, *keys, default=None):
@@ -331,7 +345,7 @@ def make_para(text, style):
 
 
 def make_bullet(text, style):
-    return Paragraph(f"• {esc(text)}", style)
+    return Paragraph(f"- {esc(text)}", style)
 
 
 def get_styles():
@@ -342,29 +356,57 @@ def get_styles():
             "ValenceTitle",
             parent=base["Title"],
             fontName="Helvetica-Bold",
-            fontSize=24,
+            fontSize=25,
             leading=28,
-            textColor=DARK,
-            spaceAfter=10,
+            textColor=colors.white,
+            alignment=0,
+            spaceAfter=6,
         ),
         "subtitle": ParagraphStyle(
             "ValenceSubtitle",
             parent=base["BodyText"],
             fontName="Helvetica",
-            fontSize=10,
-            leading=14,
-            textColor=GRAY,
-            spaceAfter=14,
+            fontSize=9.2,
+            leading=12,
+            textColor=colors.HexColor("#CFFAFE"),
+            spaceAfter=0,
+        ),
+        "eyebrow": ParagraphStyle(
+            "ValenceEyebrow",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.2,
+            leading=9,
+            textColor=CYAN,
+            spaceAfter=5,
+        ),
+        "hero_label": ParagraphStyle(
+            "ValenceHeroLabel",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.5,
+            leading=9,
+            textColor=MUTED,
+            spaceAfter=2,
+        ),
+        "hero_value": ParagraphStyle(
+            "ValenceHeroValue",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=12.5,
+            leading=15,
+            textColor=colors.white,
+            spaceAfter=0,
         ),
         "h1": ParagraphStyle(
             "ValenceH1",
             parent=base["Heading1"],
             fontName="Helvetica-Bold",
-            fontSize=15,
-            leading=18,
-            textColor=PURPLE,
-            spaceBefore=8,
-            spaceAfter=8,
+            fontSize=13.2,
+            leading=16,
+            textColor=INK,
+            spaceBefore=10,
+            spaceAfter=7,
         ),
         "h2": ParagraphStyle(
             "ValenceH2",
@@ -381,9 +423,18 @@ def get_styles():
             parent=base["BodyText"],
             fontName="Helvetica",
             fontSize=9.2,
-            leading=13,
-            textColor=DARK,
+            leading=13.4,
+            textColor=INK,
             spaceAfter=6,
+        ),
+        "body_emphasis": ParagraphStyle(
+            "ValenceBodyEmphasis",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=9.5,
+            leading=14,
+            textColor=INK,
+            spaceAfter=0,
         ),
         "small": ParagraphStyle(
             "ValenceSmall",
@@ -391,13 +442,39 @@ def get_styles():
             fontName="Helvetica",
             fontSize=7.8,
             leading=10,
-            textColor=DARK,
+            textColor=SLATE,
+        ),
+        "kpi_label": ParagraphStyle(
+            "ValenceKpiLabel",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=6.8,
+            leading=8,
+            textColor=GRAY,
+            spaceAfter=3,
+        ),
+        "kpi_value": ParagraphStyle(
+            "ValenceKpiValue",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=16,
+            textColor=INK,
+            spaceAfter=2,
+        ),
+        "kpi_note": ParagraphStyle(
+            "ValenceKpiNote",
+            parent=base["BodyText"],
+            fontName="Helvetica",
+            fontSize=7,
+            leading=9,
+            textColor=GRAY,
         ),
         "table_header": ParagraphStyle(
             "ValenceTableHeader",
             parent=base["BodyText"],
             fontName="Helvetica-Bold",
-            fontSize=7.8,
+            fontSize=7.4,
             leading=10,
             textColor=colors.white,
         ),
@@ -405,9 +482,17 @@ def get_styles():
             "ValenceTableCell",
             parent=base["BodyText"],
             fontName="Helvetica",
-            fontSize=7.8,
-            leading=10,
-            textColor=DARK,
+            fontSize=7.45,
+            leading=9.6,
+            textColor=INK,
+        ),
+        "table_cell_bold": ParagraphStyle(
+            "ValenceTableCellBold",
+            parent=base["BodyText"],
+            fontName="Helvetica-Bold",
+            fontSize=7.45,
+            leading=9.6,
+            textColor=INK,
         ),
         "warning": ParagraphStyle(
             "ValenceWarning",
@@ -422,7 +507,30 @@ def get_styles():
     return styles
 
 
-def build_table(data, col_widths=None, font_size=8, header=True):
+def build_section_title(title, kicker=None):
+    styles = get_styles()
+    rows = []
+
+    if kicker:
+        rows.append([Paragraph(esc(kicker.upper()), styles["eyebrow"])])
+
+    rows.append([Paragraph(esc(title), styles["h1"])])
+    table = Table(rows, colWidths=[PAGE_WIDTH])
+    table.setStyle(
+        TableStyle(
+            [
+                ("LINEBELOW", (0, -1), (-1, -1), 1.0, CYAN),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+            ]
+        )
+    )
+    return table
+
+
+def build_table(data, col_widths=None, font_size=8, header=True, compact=False):
     table_data = []
     styles = get_styles()
 
@@ -432,6 +540,8 @@ def build_table(data, col_widths=None, font_size=8, header=True):
         for cell in row:
             if header and row_idx == 0:
                 formatted_row.append(Paragraph(esc(cell), styles["table_header"]))
+            elif row_idx > 0 and len(row) == 2 and cell == row[0]:
+                formatted_row.append(Paragraph(esc(cell), styles["table_cell_bold"]))
             else:
                 formatted_row.append(Paragraph(esc(cell), styles["table_cell"]))
 
@@ -440,26 +550,140 @@ def build_table(data, col_widths=None, font_size=8, header=True):
     table = Table(table_data, colWidths=col_widths, repeatRows=1 if header else 0)
 
     table_style = [
-        ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
+        ("BOX", (0, 0), (-1, -1), 0.55, BORDER_SOFT),
+        ("INNERGRID", (0, 0), (-1, -1), 0.35, BORDER_SOFT),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4 if compact else 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4 if compact else 6),
         ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
         ("FONTSIZE", (0, 0), (-1, -1), font_size),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, LIGHT_GRAY]),
     ]
 
     if header:
         table_style.extend(
             [
-                ("BACKGROUND", (0, 0), (-1, 0), PURPLE),
+                ("BACKGROUND", (0, 0), (-1, 0), PANEL),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("LINEBELOW", (0, 0), (-1, 0), 1.15, CYAN),
+                ("TOPPADDING", (0, 0), (-1, 0), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 6),
             ]
         )
 
     table.setStyle(TableStyle(table_style))
+    return table
+
+
+def build_hero(target_name, selected_name, selected_ticker, generated_at):
+    styles = get_styles()
+
+    meta = Table(
+        [
+            [
+                Paragraph("TARGET", styles["hero_label"]),
+                Paragraph("SELECTED COMP", styles["hero_label"]),
+                Paragraph("GENERATED", styles["hero_label"]),
+            ],
+            [
+                Paragraph(esc(target_name), styles["hero_value"]),
+                Paragraph(esc(f"{selected_name} ({selected_ticker})"), styles["hero_value"]),
+                Paragraph(esc(generated_at), styles["hero_value"]),
+            ],
+        ],
+        colWidths=[2.05 * inch, 2.85 * inch, 1.9 * inch],
+    )
+    meta.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), PANEL_SOFT),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#1E293B")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#1E293B")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]
+        )
+    )
+
+    hero = Table(
+        [
+            [Paragraph("VALENCE MARKET INTELLIGENCE", styles["eyebrow"])],
+            [Paragraph("Comparable Company Report", styles["title"])],
+            [Paragraph("Banker-style comp set, valuation range, and data quality review.", styles["subtitle"])],
+            [meta],
+        ],
+        colWidths=[PAGE_WIDTH],
+    )
+    hero.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), NAVY),
+                ("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#1E293B")),
+                ("LINEABOVE", (0, 0), (-1, 0), 2.0, CYAN),
+                ("LEFTPADDING", (0, 0), (-1, -1), 18),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 18),
+                ("TOPPADDING", (0, 0), (-1, 0), 16),
+                ("BOTTOMPADDING", (0, 0), (-1, 0), 3),
+                ("TOPPADDING", (0, 1), (-1, 1), 0),
+                ("BOTTOMPADDING", (0, 1), (-1, 1), 4),
+                ("TOPPADDING", (0, 2), (-1, 2), 0),
+                ("BOTTOMPADDING", (0, 2), (-1, 2), 14),
+                ("TOPPADDING", (0, 3), (-1, 3), 0),
+                ("BOTTOMPADDING", (0, 3), (-1, 3), 16),
+            ]
+        )
+    )
+    return hero
+
+
+def build_kpi_cards(cards):
+    styles = get_styles()
+    cells = []
+
+    for label, value, note in cards:
+        card = Table(
+            [
+                [Paragraph(esc(label.upper()), styles["kpi_label"])],
+                [Paragraph(esc(value), styles["kpi_value"])],
+                [Paragraph(esc(note), styles["kpi_note"])],
+            ],
+            colWidths=[1.65 * inch],
+        )
+        card.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), LIGHT_GRAY),
+                    ("BOX", (0, 0), (-1, -1), 0.6, BORDER_SOFT),
+                    ("LINEABOVE", (0, 0), (-1, 0), 1.25, CYAN),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+                    ("TOPPADDING", (0, 0), (-1, 0), 8),
+                    ("BOTTOMPADDING", (0, 0), (-1, 0), 2),
+                    ("TOPPADDING", (0, 1), (-1, 1), 0),
+                    ("BOTTOMPADDING", (0, 1), (-1, 1), 2),
+                    ("TOPPADDING", (0, 2), (-1, 2), 0),
+                    ("BOTTOMPADDING", (0, 2), (-1, 2), 8),
+                ]
+            )
+        )
+        cells.append(card)
+
+    table = Table([cells], colWidths=[1.775 * inch] * len(cells))
+    table.setStyle(
+        TableStyle(
+            [
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+            ]
+        )
+    )
     return table
 
 
@@ -749,26 +973,29 @@ def create_bar_chart(labels, values, title, y_label, output_path, suffix="x"):
     if not clean_values:
         return None
 
-    plt.figure(figsize=(7.2, 3.2))
+    plt.figure(figsize=(7.2, 3.2), facecolor="white")
 
     bars = plt.bar(
         clean_labels,
         clean_values,
-        color=CHART_PURPLE,
+        color=CHART_CYAN,
+        edgecolor=CHART_PURPLE_DARK,
+        linewidth=0.4,
         width=0.58,
     )
 
     plt.title(title, fontsize=12, fontweight="bold", color=CHART_DARK)
-    plt.ylabel(y_label, fontsize=9)
+    plt.ylabel(y_label, fontsize=9, color="#334155")
     plt.xticks(rotation=25, ha="right", fontsize=8)
-    plt.yticks(fontsize=8)
-    plt.grid(axis="y", alpha=0.22)
+    plt.yticks(fontsize=8, color="#334155")
+    plt.grid(axis="y", color=CHART_GRID, linewidth=0.8)
 
     ax = plt.gca()
+    ax.set_facecolor("#F8FAFC")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#9CA3AF")
-    ax.spines["bottom"].set_color("#9CA3AF")
+    ax.spines["left"].set_color("#CBD5E1")
+    ax.spines["bottom"].set_color("#CBD5E1")
 
     max_val = max(clean_values)
 
@@ -807,16 +1034,17 @@ def create_football_field_chart(ranges, output_path):
     if not clean:
         return None
 
-    plt.figure(figsize=(7.2, 3.4))
+    plt.figure(figsize=(7.2, 3.4), facecolor="white")
     y_positions = list(range(len(clean)))
 
     for i, (label, low, high, midpoint) in enumerate(clean):
+        bar_color = CHART_CYAN if "Selected" in label else CHART_PURPLE
         plt.barh(
             i,
             high - low,
             left=low,
             height=0.35,
-            color=CHART_PURPLE,
+            color=bar_color,
             alpha=0.92,
         )
 
@@ -826,7 +1054,7 @@ def create_football_field_chart(ranges, output_path):
                 i,
                 s=34,
                 zorder=3,
-                color=CHART_PURPLE_SOFT,
+                color=CHART_PURPLE_DARK,
                 edgecolor="white",
                 linewidth=0.6,
             )
@@ -840,16 +1068,17 @@ def create_football_field_chart(ranges, output_path):
             color=CHART_DARK,
         )
 
-    plt.yticks(y_positions, [x[0] for x in clean], fontsize=8)
-    plt.xlabel("Implied Enterprise Value ($B)", fontsize=9)
+    plt.yticks(y_positions, [x[0] for x in clean], fontsize=8, color="#334155")
+    plt.xlabel("Implied Enterprise Value ($B)", fontsize=9, color="#334155")
     plt.title("Valuation Football Field", fontsize=12, fontweight="bold", color=CHART_DARK)
-    plt.grid(axis="x", alpha=0.22)
+    plt.grid(axis="x", color=CHART_GRID, linewidth=0.8)
 
     ax = plt.gca()
-    ax.spines["top"].set_color("#9CA3AF")
-    ax.spines["right"].set_color("#9CA3AF")
-    ax.spines["left"].set_color("#9CA3AF")
-    ax.spines["bottom"].set_color("#9CA3AF")
+    ax.set_facecolor("#F8FAFC")
+    ax.spines["top"].set_color("#CBD5E1")
+    ax.spines["right"].set_color("#CBD5E1")
+    ax.spines["left"].set_color("#CBD5E1")
+    ax.spines["bottom"].set_color("#CBD5E1")
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=180)
@@ -860,13 +1089,28 @@ def create_football_field_chart(ranges, output_path):
 
 def footer(canvas, doc, generated_at):
     canvas.saveState()
-    canvas.setFont("Helvetica", 7.5)
+    width, height = letter
+
+    canvas.setFillColor(NAVY)
+    canvas.rect(0, height - 0.22 * inch, width, 0.22 * inch, stroke=0, fill=1)
+    canvas.setFillColor(CYAN)
+    canvas.rect(0.55 * inch, height - 0.22 * inch, 1.15 * inch, 0.035 * inch, stroke=0, fill=1)
+
+    canvas.setStrokeColor(BORDER_SOFT)
+    canvas.setLineWidth(0.5)
+    canvas.line(0.55 * inch, 0.58 * inch, 7.95 * inch, 0.58 * inch)
+
+    canvas.setFont("Helvetica-Bold", 7.2)
+    canvas.setFillColor(SLATE)
+    canvas.drawString(0.55 * inch, 0.36 * inch, "VALENCE")
+    canvas.setFont("Helvetica", 7.2)
     canvas.setFillColor(GRAY)
     canvas.drawString(
-        0.55 * inch,
+        1.08 * inch,
         0.35 * inch,
-        f"Valence Banker Report v2 | Generated {generated_at}",
+        f"Banker Report v2 | Generated {generated_at}",
     )
+    canvas.setFont("Helvetica", 7.2)
     canvas.drawRightString(7.95 * inch, 0.35 * inch, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -968,20 +1212,6 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         bottomMargin=0.55 * inch,
     )
 
-    story = []
-
-    story.append(make_para("Valence Comparable Company Report", styles["title"]))
-
-    story.append(
-        make_para(
-            f"Target: {target_name} | Selected Comparable: {selected_name} ({selected_ticker})",
-            styles["subtitle"],
-        )
-    )
-
-    story.append(make_para("Executive Summary", styles["h1"]))
-    story.append(make_para(conclusion, styles["body"]))
-
     source_date = safe_get(
         selected,
         "marketDataDate",
@@ -998,6 +1228,30 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         "latestFiscalYear",
         default="Latest available fiscal year / LTM, where available",
     )
+
+    story = []
+
+    story.append(build_hero(target_name, selected_name, selected_ticker, generated_at))
+    story.append(Spacer(1, 14))
+
+    story.append(build_section_title("Executive Summary", "01 / Investment readout"))
+    story.append(Spacer(1, 7))
+    story.append(make_para(conclusion, styles["body_emphasis"]))
+    story.append(Spacer(1, 9))
+
+    implied_range = (
+        f"${p25_value:.2f}B - ${p75_value:.2f}B"
+        if p25_value is not None and p75_value is not None
+        else "N/A"
+    )
+    kpi_cards = [
+        ("Implied EV range", implied_range, "Peer 25th to 75th percentile"),
+        ("Peer median", fmt_x(ev_rev_stats["median"]), "EV/Revenue multiple"),
+        ("Selected comp", fmt_x(selected_ev_rev), f"{selected_ticker} EV/Revenue"),
+        ("Target revenue", fmt_m(target_rev), "Provided operating metric"),
+    ]
+    story.append(build_kpi_cards(kpi_cards))
+    story.append(Spacer(1, 10))
 
     summary_table = [
         ["Item", "Conclusion"],
@@ -1018,10 +1272,11 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         ["Financials", str(financial_period)],
     ]
 
-    story.append(build_table(summary_table, col_widths=[2.1 * inch, 5.0 * inch]))
-    story.append(Spacer(1, 10))
+    story.append(build_table(summary_table, col_widths=[2.0 * inch, 5.1 * inch], compact=True))
+    story.append(Spacer(1, 12))
 
-    story.append(make_para("Target Company Profile", styles["h1"]))
+    story.append(build_section_title("Target Company Profile", "02 / Operating profile"))
+    story.append(Spacer(1, 7))
 
     target_profile = [
         ["Field", "Value"],
@@ -1055,17 +1310,19 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         ["Employee Count", fmt_plain(safe_get(target, "employees", "employeeCount", "employee_count"))],
     ]
 
-    story.append(build_table(target_profile, col_widths=[2.1 * inch, 5.0 * inch]))
-    story.append(Spacer(1, 10))
+    story.append(build_table(target_profile, col_widths=[2.0 * inch, 5.1 * inch], compact=True))
+    story.append(Spacer(1, 12))
 
-    story.append(make_para("Comparable Selection Rationale", styles["h1"]))
+    story.append(build_section_title("Comparable Selection Rationale", "03 / Why this comp"))
+    story.append(Spacer(1, 7))
 
     for reason in selected_comp_rationale(target, selected, peer_comps):
         story.append(make_bullet(reason, styles["body"]))
 
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 11))
 
-    story.append(make_para("Peer Comparable Company Set", styles["h1"]))
+    story.append(build_section_title("Peer Comparable Company Set", "04 / Public market screen"))
+    story.append(Spacer(1, 7))
 
     peer_rows = [
         [
@@ -1113,12 +1370,14 @@ def generate_banker_report(selected_company, comps, private_company, output_path
                 0.8 * inch,
                 0.6 * inch,
             ],
-            font_size=7,
+            font_size=6.9,
+            compact=True,
         )
     )
 
     story.append(Spacer(1, 12))
-    story.append(make_para("Full Peer Statistics", styles["h1"]))
+    story.append(build_section_title("Full Peer Statistics", "05 / Multiple distribution"))
+    story.append(Spacer(1, 7))
 
     stats_table = [
         ["Metric", "Mean", "Median", "Min", "25th Percentile", "75th Percentile", "Max"],
@@ -1154,11 +1413,13 @@ def generate_banker_report(selected_company, comps, private_company, output_path
                 1.1 * inch,
                 0.9 * inch,
             ],
+            compact=True,
         )
     )
 
-    story.append(Spacer(1, 12))
-    story.append(make_para("Match Score Breakdown", styles["h1"]))
+    story.append(PageBreak())
+    story.append(build_section_title("Match Score Breakdown", "06 / Similarity drivers"))
+    story.append(Spacer(1, 7))
 
     breakdown_rows = [["Category", "Weight", "Score", "Comment"]]
     breakdown_rows.extend(calculate_match_breakdown(target, selected))
@@ -1167,12 +1428,12 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         build_table(
             breakdown_rows,
             col_widths=[1.4 * inch, 0.7 * inch, 0.7 * inch, 4.3 * inch],
+            compact=True,
         )
     )
 
-    story.append(PageBreak())
-
-    story.append(make_para("Valuation Summary", styles["h1"]))
+    story.append(build_section_title("Valuation Summary", "07 / Enterprise value output"))
+    story.append(Spacer(1, 7))
 
     valuation_rows = [
         ["Method", "Selected Multiple / Range", "Target Metric", "Implied Enterprise Value"],
@@ -1214,11 +1475,13 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         build_table(
             valuation_rows,
             col_widths=[2.0 * inch, 1.7 * inch, 1.6 * inch, 1.8 * inch],
+            compact=True,
         )
     )
 
     story.append(Spacer(1, 12))
-    story.append(make_para("EV/Revenue Sensitivity", styles["h1"]))
+    story.append(build_section_title("EV/Revenue Sensitivity", "08 / Revenue multiple cases"))
+    story.append(Spacer(1, 7))
 
     base_multiples = [3.5, 4.0, 4.5, 5.0]
     sensitivity_rows = [["EV/Revenue Multiple", "Target Revenue", "Implied Enterprise Value"]]
@@ -1236,6 +1499,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         build_table(
             sensitivity_rows,
             col_widths=[2.2 * inch, 2.2 * inch, 2.7 * inch],
+            compact=True,
         )
     )
 
@@ -1292,7 +1556,8 @@ def generate_banker_report(selected_company, comps, private_company, output_path
 
     story.append(PageBreak())
 
-    story.append(make_para("Charts and Data Quality Review", styles["h1"]))
+    story.append(build_section_title("Charts and Data Quality Review", "09 / Multiple visuals"))
+    story.append(Spacer(1, 8))
 
     labels = [ticker(c) for c in peer_comps]
 
@@ -1324,19 +1589,21 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         story.append(Image(ev_ebitda_chart, width=7.1 * inch, height=3.15 * inch))
         story.append(Spacer(1, 10))
 
-    story.append(make_para("Red Flag / Data Quality Section", styles["h1"]))
+    story.append(build_section_title("Red Flag / Data Quality Section", "10 / Review notes"))
+    story.append(Spacer(1, 7))
 
     warning_rows = [["Issue"]]
 
     for flag in data_quality_flags(target, selected, peer_comps):
         warning_rows.append([flag])
 
-    warning_table = build_table(warning_rows, col_widths=[7.1 * inch])
+    warning_table = build_table(warning_rows, col_widths=[7.1 * inch], compact=True)
 
     warning_table.setStyle(
         TableStyle(
             [
                 ("BACKGROUND", (0, 1), (-1, -1), WARNING_BG),
+                ("BOX", (0, 1), (-1, -1), 0.6, WARNING_BORDER),
                 ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
             ]
         )
@@ -1345,7 +1612,8 @@ def generate_banker_report(selected_company, comps, private_company, output_path
     story.append(warning_table)
     story.append(Spacer(1, 12))
 
-    story.append(make_para("Metric Definitions", styles["h1"]))
+    story.append(build_section_title("Metric Definitions", "11 / Appendix"))
+    story.append(Spacer(1, 7))
 
     definitions = [
         "EV/Revenue = Enterprise Value divided by revenue.",
