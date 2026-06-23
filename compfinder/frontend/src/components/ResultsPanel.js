@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import './ResultsPanel.css';
@@ -74,7 +74,13 @@ function StatCard({ label, value, sub }) {
   );
 }
 
-function CompsTable({ comps = [], privateCompany, results }) {
+function CompsTable({
+  comps = [],
+  privateCompany,
+  results,
+  selectedCompIds,
+  onToggleComp
+}) {
   const [sort, setSort] = useState({ key: 'match_score', dir: -1 });
 
   const sorted = [...comps].sort((a, b) => {
@@ -102,6 +108,7 @@ function CompsTable({ comps = [], privateCompany, results }) {
           <tr>
             <th>Ticker</th>
             <th>Company</th>
+            <th>Use</th>
             <th>Sub-sector</th>
             <Th k="match_score" label="Match" />
             <Th k="market_cap_b" label="Mkt Cap" />
@@ -117,9 +124,10 @@ function CompsTable({ comps = [], privateCompany, results }) {
         <tbody>
           {sorted.map((c, i) => {
             const ticker = c.ticker || c.symbol || "company";
+            const isSelected = selectedCompIds.includes(c._compId);
 
             return (
-              <tr key={`${ticker}-${i}`} className={i === 0 ? 'top-row' : ''}>
+              <tr key={c._compId} className={i === 0 ? 'top-row' : ''}>
                 <td>
                   <Link
                     className="ticker ticker-link"
@@ -154,6 +162,16 @@ function CompsTable({ comps = [], privateCompany, results }) {
                   </Link>
                 </td>
 
+                <td>
+                  <button
+                    type="button"
+                    className={`use-comp-btn ${isSelected ? "selected" : ""}`}
+                    onClick={() => onToggleComp(c._compId)}
+                  >
+                    {isSelected ? "Selected" : "Add"}
+                  </button>
+                </td>
+
                 <td className="sub-cell">{c.sub || c.industry || "—"}</td>
                 <td><MatchBadge score={c.match_score} /></td>
                 <td>{fmtB(c.market_cap_b)}</td>
@@ -169,6 +187,79 @@ function CompsTable({ comps = [], privateCompany, results }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+function ReportBuilder({ selectedComps, privateCompany, overallRange }) {
+  const [sections, setSections] = useState({
+    overview: true,
+    comps: true,
+    multiples: true,
+    valuation: true,
+    market: false,
+  });
+
+  const enabledSections = Object.values(sections).filter(Boolean).length;
+  const companyName = privateCompany?.company_name || "Target company";
+
+  const toggleSection = (key) => {
+    setSections((current) => ({
+      ...current,
+      [key]: !current[key],
+    }));
+  };
+
+  const sectionRows = [
+    ["overview", "Company overview"],
+    ["comps", "Selected public comps"],
+    ["multiples", "Trading multiples"],
+    ["valuation", "Implied valuation range"],
+    ["market", "Market intelligence appendix"],
+  ];
+
+  return (
+    <aside className="report-builder">
+      <div className="report-builder-head">
+        <span>Report Builder</span>
+        <strong>{enabledSections} sections</strong>
+      </div>
+
+      <div className="selected-comps-summary">
+        <p>Selected peer set</p>
+        <strong>{selectedComps.length || 0} companies</strong>
+        <div>
+          {selectedComps.length
+            ? selectedComps.map((comp) => (
+                <span key={comp._compId}>{comp.ticker || comp.symbol || comp.name || "Comp"}</span>
+              ))
+            : <em>Add comps from the table.</em>}
+        </div>
+      </div>
+
+      <div className="report-section-list">
+        {sectionRows.map(([key, label]) => (
+          <label key={key}>
+            <input
+              type="checkbox"
+              checked={sections[key]}
+              onChange={() => toggleSection(key)}
+            />
+            <span>{label}</span>
+          </label>
+        ))}
+      </div>
+
+      <div className="report-preview-card">
+        <span>Preview</span>
+        <h3>{companyName} Comp Set Report</h3>
+        <p>
+          Peer universe curated to {selectedComps.length || "selected"} public companies
+          {overallRange
+            ? ` with an implied EV range of ${fmtM(overallRange.low)} to ${fmtM(overallRange.high)}.`
+            : "."}
+        </p>
+      </div>
+    </aside>
   );
 }
 
@@ -279,6 +370,45 @@ export default function ResultsPanel({
   privateCompany = null
 }) {
   const [tab, setTab] = useState('comps');
+  const {
+    comps = [],
+    multiples = {},
+    implied = {},
+    overall_range,
+    sector_label,
+    comps_count
+  } = results || {};
+  const compsWithIds = useMemo(
+    () => comps.map((comp, index) => ({
+      ...comp,
+      _compId: `${comp.ticker || comp.symbol || comp.name || comp.company || "company"}-${index}`,
+    })),
+    [comps]
+  );
+  const defaultCompIds = useMemo(
+    () => compsWithIds.slice(0, Math.min(5, compsWithIds.length)).map((c) => c._compId),
+    [compsWithIds]
+  );
+  const [selectedCompIds, setSelectedCompIds] = useState([]);
+
+  useEffect(() => {
+    if (defaultCompIds.length) {
+      setSelectedCompIds(defaultCompIds);
+    }
+  }, [defaultCompIds]);
+
+  const selectedComps = useMemo(
+    () => compsWithIds.filter((c) => selectedCompIds.includes(c._compId)),
+    [compsWithIds, selectedCompIds]
+  );
+
+  const toggleComp = (compId) => {
+    setSelectedCompIds((current) => (
+      current.includes(compId)
+        ? current.filter((item) => item !== compId)
+        : [...current, compId]
+    ));
+  };
 
   if (loading) {
     return (
@@ -299,15 +429,6 @@ export default function ResultsPanel({
   }
 
   if (!results) return null;
-
-  const {
-    comps = [],
-    multiples = {},
-    implied = {},
-    overall_range,
-    sector_label,
-    comps_count
-  } = results;
 
   const medEVRev = multiples?.ev_rev?.median;
   const medEVEBITDA = multiples?.ev_ebitda?.median;
@@ -360,11 +481,21 @@ export default function ResultsPanel({
 
       <div className="tab-content">
         {tab === 'comps' && (
-          <CompsTable
-            comps={comps}
-            privateCompany={privateCompany}
-            results={results}
-          />
+          <div className="comp-builder-grid">
+            <CompsTable
+              comps={compsWithIds}
+              privateCompany={privateCompany}
+              results={results}
+              selectedCompIds={selectedCompIds}
+              onToggleComp={toggleComp}
+            />
+
+            <ReportBuilder
+              selectedComps={selectedComps}
+              privateCompany={privateCompany}
+              overallRange={overall_range}
+            />
+          </div>
         )}
 
         {tab === 'multiples' && (

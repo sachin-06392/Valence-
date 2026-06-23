@@ -1,15 +1,27 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { apiUrl } from "../api";
 import "./MarketIntelligenceTerminal.css";
-
-const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
 const tickerTape = [
   { symbol: "NVDA", price: "$141.22", change: "+2.4%" },
+  { symbol: "MSFT", price: "$472.08", change: "+0.7%" },
+  { symbol: "AAPL", price: "$214.43", change: "-0.3%" },
+  { symbol: "GOOGL", price: "$184.19", change: "+1.1%" },
+  { symbol: "META", price: "$683.27", change: "+1.6%" },
+  { symbol: "AMZN", price: "$219.39", change: "+0.5%" },
   { symbol: "PLTR", price: "$78.10", change: "+1.8%" },
   { symbol: "SNOW", price: "$134.44", change: "-0.6%" },
   { symbol: "CRWD", price: "$355.80", change: "+0.9%" },
   { symbol: "NET", price: "$88.42", change: "+1.2%" },
   { symbol: "DDOG", price: "$129.35", change: "-0.4%" },
+  { symbol: "MDB", price: "$282.66", change: "+1.5%" },
+  { symbol: "PANW", price: "$384.90", change: "+0.8%" },
+  { symbol: "ZS", price: "$193.74", change: "-1.1%" },
+  { symbol: "NOW", price: "$997.26", change: "+0.6%" },
+  { symbol: "ADBE", price: "$512.80", change: "-0.2%" },
+  { symbol: "CRM", price: "$286.45", change: "+0.4%" },
+  { symbol: "ORCL", price: "$178.12", change: "+1.0%" },
+  { symbol: "ANET", price: "$95.68", change: "+2.0%" },
 ];
 
 const fallbackDeals = [
@@ -148,7 +160,7 @@ export default function MarketIntelligenceTerminal({
     setRefreshingDeals(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/market-intelligence/deals?limit=6`);
+      const response = await fetch(apiUrl("/api/market-intelligence/deals?limit=6"));
 
       if (!response.ok) {
         throw new Error("Could not load latest deals");
@@ -223,7 +235,7 @@ export default function MarketIntelligenceTerminal({
 
       <div className="ticker-tape" aria-label="Market ticker tape">
         <div className="ticker-track">
-          {[...tickerTape, ...tickerTape].map((item, index) => (
+          {[...tickerTape, ...tickerTape, ...tickerTape].map((item, index) => (
             <span key={`${item.symbol}-${index}`} className="ticker-chip">
               <strong>{item.symbol}</strong>
               <span>{item.price}</span>

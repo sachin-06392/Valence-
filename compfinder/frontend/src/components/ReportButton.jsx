@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-
-const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+import { apiUrl } from "../api";
 
 function pick(obj, keys, fallback = null) {
   if (!obj) return fallback;
@@ -470,7 +469,7 @@ export default function ReportButton({
         comps_count: results?.comps_count || finalComps.length,
       };
 
-      const response = await fetch(`${API_BASE}/api/generate-report`, {
+      const response = await fetch(apiUrl("/api/generate-report"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

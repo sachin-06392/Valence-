@@ -1,7 +1,7 @@
 .market-terminal {
   position: relative;
   width: 100%;
-  min-height: 460px;
+  min-height: 520px;
   overflow: hidden;
   border-left: 1px solid rgba(148, 163, 184, 0.14);
   background:
@@ -98,7 +98,7 @@
   width: max-content;
   gap: 10px;
   padding: 10px;
-  animation: terminal-scroll 28s linear infinite;
+  animation: terminal-scroll 54s linear infinite;
 }
 
 .ticker-chip {
@@ -137,13 +137,15 @@
 
 .terminal-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 18px;
-  padding: 22px;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 230px);
+  gap: 16px;
+  padding: clamp(16px, 2vw, 22px);
 }
 
 .terminal-main,
 .terminal-side {
+  position: relative;
+  overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 20px;
   background: rgba(2, 6, 23, 0.66);
@@ -153,7 +155,7 @@
 
 .terminal-main {
   min-width: 0;
-  padding: 22px;
+  padding: clamp(18px, 2vw, 24px);
 }
 
 .terminal-headline span,
@@ -168,10 +170,10 @@
 }
 
 .terminal-headline h2 {
-  max-width: 720px;
+  max-width: 680px;
   margin: 0 0 10px;
   color: #f8fafc;
-  font-size: clamp(26px, 3vw, 40px);
+  font-size: clamp(25px, 2.4vw, 40px);
   font-weight: 900;
   line-height: 1.05;
   letter-spacing: 0;
@@ -193,7 +195,9 @@
 }
 
 .terminal-tabs button {
+  position: relative;
   min-height: 40px;
+  overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 12px;
   color: #94a3b8;
@@ -203,11 +207,44 @@
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
 }
 
+.terminal-tabs button::before,
+.deal-feed-controls button::before,
+.terminal-cta::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 1px;
+  opacity: 0;
+  border-radius: inherit;
+  background:
+    hsl(0deg 0% 16%) radial-gradient(
+      38% 38% at calc(var(--glow-x) * 1%) calc(var(--glow-y) * 1%),
+      hsl(calc(var(--glow-hue) * 1deg) 100% 86%),
+      hsl(calc(var(--glow-hue) * 1deg) 100% 58%) 38%,
+      transparent 78%
+    );
+  animation: glow-border-pan 4s linear infinite, glow-hue-spin 4s linear infinite;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  transition: opacity 0.18s ease;
+  pointer-events: none;
+}
+
 .terminal-tabs button.active,
 .terminal-tabs button:hover {
   border-color: rgba(34, 211, 238, 0.44);
   color: #67e8f9;
   background: rgba(34, 211, 238, 0.08);
+}
+
+.terminal-tabs button.active::before,
+.terminal-tabs button:hover::before,
+.deal-feed-controls button:hover::before,
+.terminal-cta:hover::before {
+  opacity: 1;
 }
 
 .terminal-tab-description {
@@ -257,7 +294,9 @@
 }
 
 .deal-feed-controls button {
+  position: relative;
   min-height: 32px;
+  overflow: hidden;
   border: 1px solid rgba(34, 211, 238, 0.28);
   border-radius: 999px;
   padding: 0 12px;
@@ -277,11 +316,11 @@
 .deal-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
+  gap: 14px;
   align-items: center;
   border: 1px solid rgba(148, 163, 184, 0.13);
   border-radius: 16px;
-  padding: 14px;
+  padding: 12px 14px;
   background: rgba(15, 23, 42, 0.44);
 }
 
@@ -325,9 +364,9 @@
 
 .deal-source-link {
   display: inline-flex;
-  margin-top: 10px;
+  margin-top: 8px;
   color: #67e8f9;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   text-decoration: none;
 }
@@ -450,10 +489,12 @@
 
 .terminal-cta {
   display: grid;
+  position: relative;
   min-height: 46px;
   margin-top: auto;
   place-items: center;
-  border: 0;
+  overflow: hidden;
+  border: 1px solid rgba(34, 211, 238, 0.38);
   border-radius: 14px;
   color: #fff;
   background: linear-gradient(90deg, #0891b2, #7c3aed);
@@ -476,7 +517,7 @@
     transform: translateX(0);
   }
   to {
-    transform: translateX(-50%);
+    transform: translateX(-66.666%);
   }
 }
 
@@ -488,6 +529,30 @@
   .terminal-side {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 981px) and (max-width: 1320px) {
+  .terminal-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(176px, 205px);
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .terminal-main {
+    padding: 18px;
+  }
+
+  .terminal-headline h2 {
+    font-size: clamp(25px, 2.7vw, 34px);
+  }
+
+  .terminal-headline p {
+    font-size: 14px;
+  }
+
+  .signal-card strong {
+    font-size: 28px;
   }
 }
 

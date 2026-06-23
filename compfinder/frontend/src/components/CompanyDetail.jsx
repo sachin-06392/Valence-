@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
+import { apiUrl } from "../api";
 import "./CompanyDetail.css";
 import ReportButton from "./ReportButton";
-
-const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
 
 function isValidNumber(value) {
   return value !== null && value !== undefined && !Number.isNaN(Number(value));
@@ -116,7 +115,7 @@ export default function CompanyDetail() {
 
         setError("");
 
-        const response = await fetch(`${API_BASE}/api/company/${ticker}`);
+        const response = await fetch(apiUrl(`/api/company/${ticker}`));
 
         if (!response.ok) {
           throw new Error("Could not load company details.");

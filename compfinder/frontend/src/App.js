@@ -4,9 +4,66 @@ import InputPanel from "./components/InputPanel";
 import ResultsPanel from "./components/ResultsPanel";
 import CompanyDetail from "./components/CompanyDetail";
 import MarketIntelligenceTerminal from "./components/MarketIntelligenceTerminal";
+import { apiUrl } from "./api";
 import "./App.css";
 
-const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8000";
+const heatmapSectors = [
+  { name: "AI / ML", deals: 18, multiple: "18.4x", momentum: "Hot", tone: "hot" },
+  { name: "Cybersecurity", deals: 14, multiple: "12.1x", momentum: "Active", tone: "hot" },
+  { name: "Data Infra", deals: 11, multiple: "10.8x", momentum: "Active", tone: "warm" },
+  { name: "Vertical SaaS", deals: 9, multiple: "8.6x", momentum: "Steady", tone: "warm" },
+  { name: "FinTech", deals: 6, multiple: "5.2x", momentum: "Selective", tone: "cool" },
+  { name: "DevTools", deals: 8, multiple: "9.4x", momentum: "Repricing", tone: "cool" },
+];
+
+function WorkflowRail({ hasSubmitted, loading, results }) {
+  const steps = [
+    { label: "Profile", detail: "Enter company basics", active: !hasSubmitted },
+    { label: "Screen", detail: "Run public comp search", active: loading },
+    { label: "Curate", detail: "Pick the strongest peers", active: !!results },
+    { label: "Report", detail: "Assemble valuation output", active: !!results },
+  ];
+
+  return (
+    <div className="workflow-rail" aria-label="Comp set builder workflow">
+      {steps.map((step, index) => (
+        <div
+          key={step.label}
+          className={`workflow-step ${step.active ? "active" : ""} ${
+            index === 0 || hasSubmitted ? "complete" : ""
+          }`}
+        >
+          <span>{index + 1}</span>
+          <div>
+            <strong>{step.label}</strong>
+            <p>{step.detail}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectorHeatmap() {
+  return (
+    <div className="sector-heatmap" aria-label="Sector heatmap">
+      <div className="heatmap-heading">
+        <span>Sector Heatmap</span>
+        <p>Quick read on where buyer activity and valuation support look strongest.</p>
+      </div>
+
+      <div className="heatmap-grid">
+        {heatmapSectors.map((sector) => (
+          <button key={sector.name} type="button" className={`heatmap-tile ${sector.tone}`}>
+            <span>{sector.name}</span>
+            <strong>{sector.multiple}</strong>
+            <em>{sector.deals} recent deals · {sector.momentum}</em>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function HomePage() {
   const [results, setResults] = useState(null);
@@ -41,7 +98,7 @@ function HomePage() {
     setPrivateCompany(formData);
 
     try {
-      const res = await fetch(`${API_BASE}/api/find-comps`, {
+      const res = await fetch(apiUrl("/api/find-comps"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -147,6 +204,11 @@ function HomePage() {
               that profile to rank public comps, calculate valuation multiples,
               and prepare the report.
             </p>
+          </div>
+
+          <div className="builder-console">
+            <WorkflowRail hasSubmitted={hasSubmitted} loading={loading} results={results} />
+            <SectorHeatmap />
           </div>
 
           <div className={`layout ${hasSubmitted ? "layout-split" : "layout-center"}`}>
