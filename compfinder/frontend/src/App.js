@@ -8,12 +8,78 @@ import { apiUrl } from "./api";
 import "./App.css";
 
 const heatmapSectors = [
-  { name: "AI / ML", deals: 18, multiple: "18.4x", momentum: "Hot", tone: "hot" },
-  { name: "Cybersecurity", deals: 14, multiple: "12.1x", momentum: "Active", tone: "hot" },
-  { name: "Data Infra", deals: 11, multiple: "10.8x", momentum: "Active", tone: "warm" },
-  { name: "Vertical SaaS", deals: 9, multiple: "8.6x", momentum: "Steady", tone: "warm" },
-  { name: "FinTech", deals: 6, multiple: "5.2x", momentum: "Selective", tone: "cool" },
-  { name: "DevTools", deals: 8, multiple: "9.4x", momentum: "Repricing", tone: "cool" },
+  {
+    name: "AI / Machine Learning",
+    shortName: "AI / ML",
+    deals: 18,
+    multiple: "18.4x",
+    momentum: "Premium",
+    read: "High-growth comps and active strategic buyer demand.",
+    comps: "NVDA, PLTR, MSFT",
+    tone: "hot",
+    sourceName: "ServiceNow / Moveworks",
+    sourceUrl: "https://www.servicenow.com/company/media/press-room/servicenow-to-acquire-moveworks.html",
+  },
+  {
+    name: "Cybersecurity",
+    shortName: "Cybersecurity",
+    deals: 14,
+    multiple: "12.1x",
+    momentum: "Active",
+    read: "Security budgets remain resilient; cloud security is the hottest pocket.",
+    comps: "CRWD, PANW, ZS",
+    tone: "hot",
+    sourceName: "Google / Wiz",
+    sourceUrl: "https://cloud.google.com/blog/products/identity-security/google-agreement-to-acquire-wiz",
+  },
+  {
+    name: "Cloud / Data Infrastructure",
+    shortName: "Cloud / Data Infra",
+    deals: 11,
+    multiple: "10.8x",
+    momentum: "Active",
+    read: "Data platforms are being valued on AI readiness and scale.",
+    comps: "SNOW, MDB, DDOG",
+    tone: "warm",
+    sourceName: "Salesforce / Informatica",
+    sourceUrl: "https://www.salesforce.com/news/press-releases/2025/05/27/salesforce-signs-definitive-agreement-to-acquire-informatica/",
+  },
+  {
+    name: "Vertical Software",
+    shortName: "Vertical Software",
+    deals: 9,
+    multiple: "8.6x",
+    momentum: "Steady",
+    read: "Durable niches still get credit when retention and margins are strong.",
+    comps: "VEEV, APPF, BLKB",
+    tone: "warm",
+    sourceName: "Synopsys / Ansys",
+    sourceUrl: "https://news.synopsys.com/2025-07-17-Synopsys-Completes-Acquisition-of-Ansys",
+  },
+  {
+    name: "FinTech / Payments",
+    shortName: "FinTech",
+    deals: 6,
+    multiple: "5.2x",
+    momentum: "Selective",
+    read: "Buyers are more selective and focused on profitable payment rails.",
+    comps: "SQ, PYPL, FOUR",
+    tone: "cool",
+    sourceName: "Market context",
+    sourceUrl: "",
+  },
+  {
+    name: "Developer Tools / DevOps",
+    shortName: "DevTools",
+    deals: 8,
+    multiple: "9.4x",
+    momentum: "Repricing",
+    read: "AI coding workflows help, but buyers are watching efficiency.",
+    comps: "GTLB, TEAM, DDOG",
+    tone: "cool",
+    sourceName: "IBM / HashiCorp",
+    sourceUrl: "https://newsroom.ibm.com/2025-02-27-IBM-Completes-Acquisition-of-HashiCorp",
+  },
 ];
 
 function WorkflowRail({ hasSubmitted, loading, results }) {
@@ -44,21 +110,39 @@ function WorkflowRail({ hasSubmitted, loading, results }) {
   );
 }
 
-function SectorHeatmap() {
+function SectorHeatmap({ selectedSector, onSelectSector }) {
   return (
-    <div className="sector-heatmap" aria-label="Sector heatmap">
+    <div className="sector-heatmap" aria-label="Sector signals">
       <div className="heatmap-heading">
-        <span>Sector Heatmap</span>
-        <p>Quick read on where buyer activity and valuation support look strongest.</p>
+        <div>
+          <span>Sector Signals</span>
+          <strong>Pick a market starting point</strong>
+        </div>
+        <p>Each tile shows median EV/Revenue, recent strategic deal count, public comp examples, and the current valuation read.</p>
       </div>
 
       <div className="heatmap-grid">
         {heatmapSectors.map((sector) => (
-          <button key={sector.name} type="button" className={`heatmap-tile ${sector.tone}`}>
-            <span>{sector.name}</span>
-            <strong>{sector.multiple}</strong>
-            <em>{sector.deals} recent deals · {sector.momentum}</em>
-          </button>
+          <article
+            key={sector.name}
+            className={`heatmap-tile ${sector.tone} ${
+              selectedSector === sector.name ? "selected" : ""
+            }`}
+          >
+            <button type="button" onClick={() => onSelectSector(sector.name)}>
+              <span>{sector.shortName}</span>
+              <strong>{sector.multiple}</strong>
+              <small>Median EV/Revenue</small>
+              <em>{sector.deals} recent strategic deals - {sector.momentum}</em>
+              <p>{sector.read}</p>
+              <b>{sector.comps}</b>
+            </button>
+            {sector.sourceUrl && (
+              <a href={sector.sourceUrl} target="_blank" rel="noreferrer">
+                Latest source: {sector.sourceName}
+              </a>
+            )}
+          </article>
         ))}
       </div>
     </div>
@@ -66,22 +150,45 @@ function SectorHeatmap() {
 }
 
 function HomePage() {
-  const [results, setResults] = useState(null);
-  const [privateCompany, setPrivateCompany] = useState(null);
+  const [results, setResults] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("valenceLastResults") || "null");
+    } catch {
+      return null;
+    }
+  });
+  const [privateCompany, setPrivateCompany] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("valenceLastPrivateCompany") || "null");
+    } catch {
+      return null;
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("market");
+  const [selectedSector, setSelectedSector] = useState("");
 
   useEffect(() => {
     if (window.location.hash === "#analysis-workbench") {
       setActiveWorkspaceTab("builder");
+      setHasSubmitted(!!localStorage.getItem("valenceLastResults"));
     }
   }, []);
 
   const openBuilder = () => {
     setActiveWorkspaceTab("builder");
     window.history.replaceState(null, "", "#analysis-workbench");
+  };
+
+  const chooseSector = (sector) => {
+    setSelectedSector(sector);
+    openBuilder();
+
+    window.requestAnimationFrame(() => {
+      document.getElementById("analysis-workbench")?.scrollIntoView({ block: "start" });
+    });
   };
 
   const openMarket = () => {
@@ -122,6 +229,11 @@ function HomePage() {
         localStorage.setItem(
           "valenceLastComps",
           JSON.stringify(data.comps || [])
+        );
+
+        localStorage.setItem(
+          "valenceLastResults",
+          JSON.stringify(data || {})
         );
 
         // Save the private company input so the PDF valuation section uses the user input
@@ -208,11 +320,15 @@ function HomePage() {
 
           <div className="builder-console">
             <WorkflowRail hasSubmitted={hasSubmitted} loading={loading} results={results} />
-            <SectorHeatmap />
+            <SectorHeatmap selectedSector={selectedSector} onSelectSector={chooseSector} />
           </div>
 
           <div className={`layout ${hasSubmitted ? "layout-split" : "layout-center"}`}>
-            <InputPanel onSubmit={handleSubmit} loading={loading} />
+            <InputPanel
+              onSubmit={handleSubmit}
+              loading={loading}
+              selectedSector={selectedSector}
+            />
 
             {hasSubmitted && (
               <ResultsPanel

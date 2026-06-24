@@ -163,7 +163,7 @@ export default function CompanyDetail() {
   if (loading) {
     return (
       <DetailPageShell>
-        <Link to="/" className="back-link">
+        <Link to="/#analysis-workbench" className="back-link">
           Back to analysis workbench
         </Link>
 
@@ -178,7 +178,7 @@ export default function CompanyDetail() {
   if (error) {
     return (
       <DetailPageShell>
-        <Link to="/" className="back-link">
+        <Link to="/#analysis-workbench" className="back-link">
           Back to analysis workbench
         </Link>
 
@@ -192,7 +192,7 @@ export default function CompanyDetail() {
   if (!data || !data.company) {
     return (
       <DetailPageShell>
-        <Link to="/" className="back-link">
+        <Link to="/#analysis-workbench" className="back-link">
           Back to analysis workbench
         </Link>
 
@@ -390,7 +390,7 @@ export default function CompanyDetail() {
 
   return (
     <DetailPageShell>
-      <Link to="/" className="back-link">
+      <Link to="/#analysis-workbench" className="back-link">
         Back to analysis workbench
       </Link>
 

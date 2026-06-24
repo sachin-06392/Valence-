@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './InputPanel.css';
 
 const SECTORS = [
@@ -248,29 +248,91 @@ const Field = ({ label, hint, error, children }) => (
   </div>
 );
 
-export default function InputPanel({ onSubmit, loading }) {
-  const [form, setForm] = useState({
-    company_name: "",
-    sector: "",
-    sub_sector: "",
-    geo: "North America",
-    stage: "Growth",
+const DEFAULT_FORM = {
+  company_name: "",
+  sector: "",
+  sub_sector: "",
+  geo: "North America",
+  stage: "Growth",
 
-    revenue_model: "",
-    customer_type: "",
+  revenue_model: "",
+  customer_type: "",
 
-    revenue_m: "",
-    ebitda_m: "",
-    gross_margin_pct: "",
-    net_income_m: "",
-    rev_growth_pct: "",
-    employees: "",
+  revenue_m: "",
+  ebitda_m: "",
+  gross_margin_pct: "",
+  net_income_m: "",
+  rev_growth_pct: "",
+  employees: "",
 
-    max_comps: 8,
-    include_historical_comps: false,
-  });
+  max_comps: 8,
+  include_historical_comps: false,
+};
+
+function readSavedForm() {
+  try {
+    const savedDraft = JSON.parse(localStorage.getItem("valenceFormDraft") || "null");
+    const savedSubmitted = JSON.parse(localStorage.getItem("valenceLastPrivateCompany") || "null");
+    const saved = savedDraft || savedSubmitted || {};
+
+    return {
+      ...DEFAULT_FORM,
+      ...saved,
+      company_name: saved.company_name || saved.name || DEFAULT_FORM.company_name,
+      sector: saved.sector || DEFAULT_FORM.sector,
+      sub_sector: saved.sub_sector || saved.subSector || DEFAULT_FORM.sub_sector,
+      geo: saved.geo || saved.geography || DEFAULT_FORM.geo,
+      stage: saved.stage || DEFAULT_FORM.stage,
+      revenue_model: saved.revenue_model || saved.revenueModel || DEFAULT_FORM.revenue_model,
+      customer_type: saved.customer_type || saved.customerType || DEFAULT_FORM.customer_type,
+      revenue_m: saved.revenue_m ?? saved.revenue ?? DEFAULT_FORM.revenue_m,
+      ebitda_m: saved.ebitda_m ?? saved.ebitda ?? DEFAULT_FORM.ebitda_m,
+      gross_margin_pct: saved.gross_margin_pct ?? saved.grossMargin ?? DEFAULT_FORM.gross_margin_pct,
+      net_income_m: saved.net_income_m ?? saved.netIncome ?? DEFAULT_FORM.net_income_m,
+      rev_growth_pct: saved.rev_growth_pct ?? saved.revGrowth ?? DEFAULT_FORM.rev_growth_pct,
+      employees: saved.employees ?? DEFAULT_FORM.employees,
+      max_comps: saved.max_comps ?? DEFAULT_FORM.max_comps,
+      include_historical_comps: !!(
+        saved.include_historical_comps ||
+        saved.includeHistoricalComps
+      ),
+    };
+  } catch {
+    return DEFAULT_FORM;
+  }
+}
+
+export default function InputPanel({ onSubmit, loading, selectedSector = "" }) {
+  const [form, setForm] = useState(readSavedForm);
 
   const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    localStorage.setItem("valenceFormDraft", JSON.stringify(form));
+  }, [form]);
+
+  useEffect(() => {
+    if (!selectedSector) {
+      return;
+    }
+
+    setForm((prev) => {
+      if (prev.sector === selectedSector) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        sector: selectedSector,
+        sub_sector: "",
+      };
+    });
+
+    setErrors((prev) => ({
+      ...prev,
+      sector: undefined,
+    }));
+  }, [selectedSector]);
 
   const set = (key, value) => {
     setForm((prev) => ({

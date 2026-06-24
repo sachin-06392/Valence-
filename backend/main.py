@@ -1,12 +1,13 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, Any, Dict, List
 from functools import lru_cache
 import os
 import re
 import tempfile
+import io
 import requests
 import yfinance as yf
 import numpy as np
@@ -1859,6 +1860,440 @@ def build_report_response(payload: Dict[str, Any]):
 @app.post("/api/generate-report")
 async def generate_report(payload: Dict[str, Any]):
     return build_report_response(payload)
+
+
+@app.post("/api/generate-deck")
+async def generate_deck(payload: Dict[str, Any]):
+    try:
+        from pptx import Presentation
+        from pptx.dml.color import RGBColor
+        from pptx.enum.text import PP_ALIGN
+        from pptx.util import Inches, Pt
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="PowerPoint export is not installed on the backend.",
+        ) from exc
+
+    selected = payload.get("selectedCompany") or {}
+    comps = payload.get("comps") or []
+    private = payload.get("privateCompany") or {}
+    implied = payload.get("implied") or {}
+    overall = payload.get("overall_range") or {}
+    sector = payload.get("sector_label") or selected.get("sector") or "selected sector"
+    options = payload.get("deckOptions") or {}
+
+    colorways = {
+        "midnight": ("07111F", "0F1B2D", "F8FAFC", "94A3B8", "22D3EE", "7C3AED"),
+        "boardroom": ("F6F8FB", "FFFFFF", "102033", "5D6B7A", "1D4ED8", "0F766E"),
+        "emerald": ("071A16", "0D2B24", "ECFDF5", "A7F3D0", "10B981", "F59E0B"),
+        "plum": ("170923", "251137", "FAF5FF", "D8B4FE", "A855F7", "22D3EE"),
+        "onyx": ("08070D", "15111F", "FAFAFA", "A3A3A3", "F472B6", "38BDF8"),
+        "copper": ("12100D", "211A14", "FFF7ED", "FED7AA", "F97316", "14B8A6"),
+        "arctic": ("EFF6FF", "FFFFFF", "0F172A", "475569", "0284C7", "7C3AED"),
+        "terminal": ("03120C", "082016", "ECFDF5", "86EFAC", "22C55E", "38BDF8"),
+    }
+
+    bg, panel, ink, muted, accent, accent2 = colorways.get(
+        options.get("colorway"),
+        colorways["midnight"],
+    )
+
+    def rgb(hex_value: str):
+        clean = str(hex_value).replace("#", "")
+        return RGBColor(int(clean[0:2], 16), int(clean[2:4], 16), int(clean[4:6], 16))
+
+    def text_value(obj: Dict[str, Any], keys: List[str], fallback: str = "N/A") -> str:
+        for key in keys:
+            value = obj.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return fallback
+
+    def number_value(obj: Dict[str, Any], keys: List[str]):
+        for key in keys:
+            try:
+                value = obj.get(key)
+                if value not in (None, ""):
+                    return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    def fmt_m(value):
+        try:
+            return f"${float(value):,.0f}M"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def fmt_x(value):
+        try:
+            return f"{float(value):.1f}x"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def fmt_pct(value):
+        try:
+            return f"{float(value):.0f}%"
+        except (TypeError, ValueError):
+            return "N/A"
+
+    def add_text(slide, text, x, y, w, h, size=18, bold=False, color=None, align=None):
+        box = slide.shapes.add_textbox(Inches(x), Inches(y), Inches(w), Inches(h))
+        frame = box.text_frame
+        frame.clear()
+        frame.word_wrap = True
+        paragraph = frame.paragraphs[0]
+        if align:
+            paragraph.alignment = align
+        run = paragraph.add_run()
+        run.text = str(text)
+        run.font.name = "Aptos"
+        run.font.size = Pt(size)
+        run.font.bold = bold
+        run.font.color.rgb = rgb(color or ink)
+        return box
+
+    def add_panel(slide, x, y, w, h, fill=None):
+        shape = slide.shapes.add_shape(1, Inches(x), Inches(y), Inches(w), Inches(h))
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = rgb(fill or panel)
+        shape.line.color.rgb = rgb(accent)
+        shape.line.transparency = 35
+        return shape
+
+    def add_metric_card(slide, label, value, note, x, y, w=2.75, h=1.18):
+        add_panel(slide, x, y, w, h)
+        add_text(slide, label, x + 0.18, y + 0.16, w - 0.35, 0.22, 9, True, accent)
+        add_text(slide, value, x + 0.18, y + 0.44, w - 0.35, 0.36, 20, True, ink)
+        add_text(slide, note, x + 0.18, y + 0.84, w - 0.35, 0.2, 8, False, muted)
+
+    def add_bullet_rows(slide, rows, start_y=1.55, max_rows=5):
+        for index, item in enumerate(rows[:max_rows]):
+            y = start_y + index * 0.86
+            add_panel(slide, 0.78, y, 11.75, 0.58)
+            add_text(slide, item, 1.04, y + 0.16, 11.1, 0.22, 13, index == 0, ink)
+
+    def add_bar(slide, label, value, max_value, x, y, w=5.3):
+        safe_value = max(0, float(value or 0))
+        safe_max = max(float(max_value or 1), safe_value, 1)
+        bar_w = max(0.08, w * safe_value / safe_max)
+        add_text(slide, label, x, y, 2.2, 0.22, 9, True, muted)
+        add_panel(slide, x + 2.35, y + 0.02, w, 0.16, "1E293B")
+        add_panel(slide, x + 2.35, y + 0.02, bar_w, 0.16, accent)
+        add_text(slide, f"{safe_value:.1f}x", x + 2.35 + w + 0.15, y - 0.03, 0.7, 0.22, 9, True, ink)
+
+    def add_quadrant(slide, x, y, w, h, points):
+        add_panel(slide, x, y, w, h)
+        add_text(slide, "Lower fit", x + 0.15, y + h - 0.28, 1.1, 0.18, 8, True, muted)
+        add_text(slide, "Higher fit", x + w - 1.2, y + 0.12, 1.0, 0.18, 8, True, muted, PP_ALIGN.RIGHT)
+        add_text(slide, "Valuation support", x + w - 1.55, y + h - 0.28, 1.35, 0.18, 8, True, muted, PP_ALIGN.RIGHT)
+        add_panel(slide, x + w / 2, y + 0.16, 0.02, h - 0.32, muted)
+        add_panel(slide, x + 0.16, y + h / 2, w - 0.32, 0.02, muted)
+        for point in points[:7]:
+            px = x + 0.35 + (w - 0.7) * max(0, min(100, point["fit"])) / 100
+            py = y + h - 0.35 - (h - 0.7) * max(0, min(100, point["support"])) / 100
+            dot = slide.shapes.add_shape(1, Inches(px), Inches(py), Inches(0.16), Inches(0.16))
+            dot.fill.solid()
+            dot.fill.fore_color.rgb = rgb(accent2 if point.get("lead") else accent)
+            dot.line.color.rgb = rgb(accent2 if point.get("lead") else accent)
+            add_text(slide, point["label"], px + 0.18, py - 0.02, 0.9, 0.18, 7, True, ink)
+
+    def add_waterfall(slide, x, y, values):
+        max_abs = max([abs(v["value"]) for v in values] + [1])
+        base_y = y + 2.15
+        cursor_x = x
+        for item in values:
+            height = 1.8 * abs(item["value"]) / max_abs
+            top_y = base_y - height if item["value"] >= 0 else base_y
+            fill = accent if item["value"] >= 0 else accent2
+            add_panel(slide, cursor_x, top_y, 1.25, max(0.12, height), fill)
+            add_text(slide, item["label"], cursor_x - 0.08, base_y + 0.18, 1.4, 0.34, 8, True, muted, PP_ALIGN.CENTER)
+            add_text(slide, item["display"], cursor_x - 0.05, top_y - 0.26, 1.35, 0.2, 9, True, ink, PP_ALIGN.CENTER)
+            cursor_x += 1.55
+
+    def add_roadmap(slide, x, y, steps):
+        for index, step in enumerate(steps):
+            card_x = x + index * 3.05
+            add_panel(slide, card_x, y, 2.72, 2.1)
+            add_text(slide, f"0{index + 1}", card_x + 0.2, y + 0.18, 0.45, 0.22, 10, True, accent)
+            add_text(slide, step["title"], card_x + 0.2, y + 0.5, 2.2, 0.38, 14, True, ink)
+            add_text(slide, step["body"], card_x + 0.2, y + 1.04, 2.24, 0.62, 9, False, muted)
+            if index < len(steps) - 1:
+                add_text(slide, ">", card_x + 2.83, y + 0.84, 0.18, 0.24, 12, True, accent)
+
+    def add_risk_table(slide, rows):
+        headers = ["Risk", "Why it matters", "Mitigation"]
+        col_x = [0.82, 3.55, 7.3]
+        widths = [2.35, 3.2, 4.85]
+        for x, width, header in zip(col_x, widths, headers):
+            add_text(slide, header, x, 1.48, width, 0.24, 10, True, accent)
+        for index, row in enumerate(rows[:5]):
+            y = 1.92 + index * 0.78
+            add_panel(slide, 0.72, y - 0.08, 11.65, 0.58)
+            for x, width, value in zip(col_x, widths, row):
+                add_text(slide, value, x, y + 0.06, width, 0.32, 9, False, ink)
+
+    def add_slide(title, kicker="VALENCE EXPORT STUDIO"):
+        slide = prs.slides.add_slide(blank)
+        slide.background.fill.solid()
+        slide.background.fill.fore_color.rgb = rgb(bg)
+        add_text(slide, kicker, 0.7, 0.42, 4.8, 0.25, 10, True, accent)
+        add_text(slide, title, 0.7, 0.72, 7.8, 0.55, 24, True, ink)
+        return slide
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank = prs.slide_layouts[6]
+
+    target_name = text_value(private, ["company_name", "name", "company"], "Target company")
+    selected_name = text_value(selected, ["name", "company", "companyName"], "Selected comp")
+    selected_ticker = text_value(selected, ["ticker", "symbol"], "")
+    audience = str(options.get("audience") or "investor").replace("-", " ")
+    feature_pack = str(options.get("featurePack") or "competition").replace("-", " ")
+    density = str(options.get("density") or "balanced")
+    component_style = str(options.get("componentStyle") or "strategy").replace("-", " ")
+    instructions = str(options.get("instructions") or "").strip()
+    selected_sections = options.get("sections") or {}
+    selected_sections = {
+        "overview": True,
+        "comps": True,
+        "multiples": True,
+        "valuation": True,
+        "market": False,
+        **selected_sections,
+    }
+    revenue_m = number_value(private, ["revenue_m", "revenue"])
+    ebitda_m = number_value(private, ["ebitda_m", "ebitda"])
+    growth_pct = number_value(private, ["rev_growth_pct", "revGrowth", "revenue_growth"])
+    gross_margin = number_value(private, ["gross_margin_pct", "grossMargin", "gross_margin"])
+    ev_rev_values = [
+        number_value(comp, ["ev_rev", "evRevenue"])
+        for comp in comps
+        if number_value(comp, ["ev_rev", "evRevenue"]) is not None
+    ]
+    ev_ebitda_values = [
+        number_value(comp, ["ev_ebitda", "evEbitda"])
+        for comp in comps
+        if number_value(comp, ["ev_ebitda", "evEbitda"]) is not None
+    ]
+    median_ev_rev = float(np.median(ev_rev_values)) if ev_rev_values else None
+    median_ev_ebitda = float(np.median(ev_ebitda_values)) if ev_ebitda_values else None
+
+    slide = add_slide(f"{target_name} Trading Comps Analysis", "CONFIDENTIAL DRAFT")
+    add_text(slide, f"Primary benchmark: {selected_name} {f'({selected_ticker})' if selected_ticker else ''}", 0.7, 1.55, 8.2, 0.38, 17, False, muted)
+    add_panel(slide, 8.7, 1.2, 3.7, 4.7)
+    add_text(slide, "Deck setup", 9.05, 1.55, 2.7, 0.3, 11, True, accent)
+    add_text(slide, f"Audience\n{audience.title()}", 9.05, 2.02, 2.7, 0.72, 18, True, ink)
+    add_text(slide, f"Feature pack\n{feature_pack.title()}", 9.05, 2.95, 2.7, 0.72, 18, True, ink)
+    add_text(slide, f"Style\n{component_style.title()} / {density.title()}", 9.05, 3.9, 2.7, 0.72, 18, True, ink)
+    add_text(slide, f"Sector: {sector}", 0.7, 6.45, 6.2, 0.28, 12, True, accent)
+
+    slide = add_slide("Executive valuation thesis")
+    thesis = [
+        f"{target_name} screens against {len(comps) or 'selected'} public comps in {sector}.",
+        f"{selected_name} is the lead benchmark for business model and trading context.",
+        "Valuation range is based on selected peer multiples and user-entered target financials.",
+        f"Output is tailored for {audience} use with {feature_pack} support.",
+    ]
+    for index, item in enumerate(thesis):
+        add_panel(slide, 0.8, 1.45 + index * 1.02, 11.7, 0.72)
+        add_text(slide, item, 1.05, 1.63 + index * 1.02, 10.9, 0.3, 16, index == 0, ink)
+
+    if selected_sections.get("overview"):
+        slide = add_slide("Situation, question, and valuation answer")
+        add_metric_card(slide, "Revenue", fmt_m(revenue_m), "User-entered target metric", 0.82, 1.45)
+        add_metric_card(slide, "Growth", fmt_pct(growth_pct), "Revenue growth context", 3.85, 1.45)
+        add_metric_card(slide, "Gross margin", fmt_pct(gross_margin), "Quality / margin signal", 6.88, 1.45)
+        add_metric_card(slide, "Lead comp", selected_ticker or selected_name, "Primary public benchmark", 9.91, 1.45)
+        situation_rows = [
+            f"Core question: what public trading context best supports {target_name}'s valuation range?",
+            f"Answer: use the {sector} peer set, anchored on {selected_name}, then pressure-test with growth and margin quality.",
+            "Investor-ready narrative: valuation is most defensible when peer relevance, multiple dispersion, and business quality are shown together.",
+            f"Deck mode: {feature_pack.title()} for {audience.title()} audiences.",
+        ]
+        add_bullet_rows(slide, situation_rows, 3.15, 4)
+
+    if selected_sections.get("comps"):
+        slide = add_slide("Comparable universe and selection logic")
+        headers = ["Ticker", "Company", "Revenue", "EV/Rev", "EV/EBITDA", "Match"]
+        rows = comps[:8] or [selected]
+        col_x = [0.75, 1.75, 5.45, 7.15, 8.75, 10.65]
+        widths = [0.8, 3.3, 1.3, 1.25, 1.5, 1.0]
+        for x, width, header in zip(col_x, widths, headers):
+            add_text(slide, header, x, 1.45, width, 0.28, 10, True, accent)
+        for row_index, comp_row in enumerate(rows):
+            y = 1.9 + row_index * 0.48
+            add_panel(slide, 0.65, y - 0.08, 11.55, 0.38, panel)
+            values = [
+                text_value(comp_row, ["ticker", "symbol"], "N/A"),
+                text_value(comp_row, ["name", "company", "companyName"], "N/A"),
+                fmt_m(number_value(comp_row, ["revenue_m", "revenue"])),
+                fmt_x(number_value(comp_row, ["ev_rev", "evRevenue"])),
+                fmt_x(number_value(comp_row, ["ev_ebitda", "evEbitda"])),
+                fmt_pct(number_value(comp_row, ["match_score", "matchScore"])),
+            ]
+            for x, width, value in zip(col_x, widths, values):
+                add_text(slide, value, x, y, width, 0.22, 10, False, ink)
+        add_text(slide, "Selection rule: prioritize business-model relevance, sector fit, valuation data completeness, and match score.", 0.8, 6.35, 11.4, 0.28, 11, True, muted)
+
+    if selected_sections.get("multiples"):
+        slide = add_slide("Trading multiple benchmark readout")
+        add_metric_card(slide, "Median EV/Revenue", fmt_x(median_ev_rev), "Selected peer median", 0.82, 1.42, 3.2)
+        add_metric_card(slide, "Median EV/EBITDA", fmt_x(median_ev_ebitda), "Selected peer median", 4.08, 1.42, 3.2)
+        add_metric_card(slide, "Peer count", str(len(comps) or 1), "Companies in selected set", 7.34, 1.42, 3.2)
+        multiple_rows = [
+            "Premium multiple support requires more than category heat: growth, margin, scale, and public-market relevance must align.",
+            f"{selected_name} anchors the discussion, while the broader comp set establishes the defensible range.",
+            "Outliers should be explained rather than blindly averaged; appendix pages preserve the full evidence trail.",
+        ]
+        add_bullet_rows(slide, multiple_rows, 3.15, 3)
+
+        slide = add_slide("Peer multiple benchmarking")
+        ranked_ev_rev = sorted(
+            [
+                {
+                    "label": text_value(comp, ["ticker", "symbol"], text_value(comp, ["name", "company"], "Comp"))[:10],
+                    "value": number_value(comp, ["ev_rev", "evRevenue"]) or 0,
+                }
+                for comp in comps[:8]
+            ],
+            key=lambda item: item["value"],
+            reverse=True,
+        )
+        max_ev_rev = max([item["value"] for item in ranked_ev_rev] + [1])
+        for index, item in enumerate(ranked_ev_rev[:8]):
+            add_bar(slide, item["label"], item["value"], max_ev_rev, 0.9, 1.45 + index * 0.46, 6.1)
+        add_panel(slide, 9.0, 1.48, 2.65, 3.0)
+        add_text(slide, "Readout", 9.25, 1.82, 1.8, 0.25, 12, True, accent)
+        add_text(slide, "This page makes the multiple dispersion visible so the chosen range feels defended, not arbitrary.", 9.25, 2.28, 1.95, 0.95, 13, False, ink)
+
+        slide = add_slide("Strategic fit vs. valuation support matrix")
+        matrix_points = []
+        for comp in comps[:7]:
+            match = number_value(comp, ["match_score", "matchScore"]) or 55
+            ev_rev = number_value(comp, ["ev_rev", "evRevenue"]) or median_ev_rev or 5
+            support = 50 if not median_ev_rev else min(96, max(18, 50 + (ev_rev - median_ev_rev) * 7))
+            label = text_value(comp, ["ticker", "symbol"], text_value(comp, ["name", "company"], "Comp"))[:8]
+            matrix_points.append({
+                "label": label,
+                "fit": match,
+                "support": support,
+                "lead": label == selected_ticker,
+            })
+        add_quadrant(slide, 1.0, 1.45, 6.2, 4.45, matrix_points)
+        add_panel(slide, 8.15, 1.65, 3.35, 3.7)
+        add_text(slide, "How to use it", 8.45, 1.98, 2.4, 0.25, 12, True, accent)
+        add_text(slide, "Comps in the upper-right are stronger valuation anchors. Lower-left comps may still be useful as boundary cases or appendix support.", 8.45, 2.42, 2.55, 1.2, 13, False, ink)
+
+    if selected_sections.get("valuation"):
+        slide = add_slide("Implied valuation range and method bridge")
+        low = overall.get("low")
+        high = overall.get("high")
+        if low is not None and high is not None:
+            add_panel(slide, 0.85, 1.55, 5.2, 2.2)
+            add_text(slide, "Enterprise value range", 1.15, 1.9, 3.2, 0.28, 12, True, accent)
+            add_text(slide, f"{fmt_m(low)} - {fmt_m(high)}", 1.15, 2.38, 4.3, 0.55, 30, True, ink)
+        else:
+            add_text(slide, "Add revenue, EBITDA, and margin inputs to populate the implied valuation range.", 0.85, 1.7, 9.5, 0.45, 18, True, muted)
+        methods = list(implied.values())[:4]
+        for index, method in enumerate(methods):
+            y = 4.25 + index * 0.5
+            label = method.get("method") or "Valuation method"
+            add_text(slide, f"{label}: {fmt_m(method.get('low'))} - {fmt_m(method.get('high'))}", 0.95, y, 7.6, 0.25, 12, False, ink)
+        add_panel(slide, 7.1, 1.55, 4.95, 2.2)
+        add_text(slide, "Valuation defense", 7.4, 1.9, 3.7, 0.28, 12, True, accent)
+        add_text(slide, "Triangulate revenue, EBITDA, and gross-profit methods where available; explain gaps where target metrics are unavailable.", 7.4, 2.35, 4.1, 0.7, 14, False, ink)
+
+        slide = add_slide("Valuation bridge from target metric to EV")
+        bridge_values = [
+            {"label": "Revenue", "value": revenue_m or 0, "display": fmt_m(revenue_m)},
+            {"label": "Peer multiple", "value": median_ev_rev or 0, "display": fmt_x(median_ev_rev)},
+            {"label": "Low case", "value": low or 0, "display": fmt_m(low)},
+            {"label": "High case", "value": high or 0, "display": fmt_m(high)},
+        ]
+        add_waterfall(slide, 1.0, 2.0, bridge_values)
+        add_panel(slide, 8.2, 1.65, 3.4, 3.15)
+        add_text(slide, "Bridge logic", 8.5, 1.98, 2.1, 0.25, 12, True, accent)
+        add_text(slide, "The bridge turns the valuation from a number into a defendable chain: target financial metric, peer multiple, and sensitivity range.", 8.5, 2.42, 2.55, 1.05, 13, False, ink)
+
+    slide = add_slide("Recommendation and executive talking points")
+    recommendation_rows = [
+        f"Recommendation: position {target_name} against the selected {sector} peer set, with {selected_name} as the lead public benchmark.",
+        "Use median multiples for the base case and 25th-75th percentile ranges for sensitivity discussion.",
+        "Lead with business-model fit before valuation math; decision makers trust the multiple only after they trust the comp set.",
+        "Reserve outlier discussion, source limitations, and alternate comps for appendix support.",
+    ]
+    add_bullet_rows(slide, recommendation_rows, 1.45, 4)
+
+    slide = add_slide("Likely Q&A and objection handling")
+    qa_rows = [
+        "Why these comps? Selection emphasizes sector, business model, revenue scale, growth, margin profile, and public-market data quality.",
+        "Why not a higher multiple? Premium support depends on proving growth durability, margin expansion, and strategic scarcity.",
+        "What weakens the valuation? Thin profitability, volatile growth, missing retention data, or weak comp relevance.",
+        "What would strengthen the case? More KPIs, customer concentration detail, ARR/NRR, cohort retention, and a clearer market-size bridge.",
+    ]
+    add_bullet_rows(slide, qa_rows, 1.45, 4)
+
+    slide = add_slide("Risk register and mitigation plan")
+    add_risk_table(slide, [
+        ["Comp relevance", "Wrong peer set weakens the multiple", "Keep alternates in appendix and explain inclusion rules"],
+        ["Profitability gap", "High growth with low margin can pressure valuation", "Show margin path and operating leverage cases"],
+        ["Growth durability", "Multiple depends on credible forward growth", "Add ARR, NRR, pipeline, and cohort evidence"],
+        ["Market volatility", "Public multiples can reset quickly", "Use percentile ranges and update data date"],
+        ["Data gaps", "Missing KPIs reduce confidence", "Flag assumptions and request diligence inputs"],
+    ])
+
+    slide = add_slide("Workplan to final investment-ready deck")
+    add_roadmap(slide, 0.9, 1.75, [
+        {"title": "Validate", "body": "Confirm company profile, revenue model, sector, and excluded comps."},
+        {"title": "Pressure-test", "body": "Run multiple, growth, and margin sensitivities against selected peers."},
+        {"title": "Narrate", "body": "Turn valuation output into recommendation, risks, and buyer/investor story."},
+        {"title": "Finalize", "body": "Export PPTX, PDF, or Google Slides-ready file with appendix support."},
+    ])
+
+    if selected_sections.get("market") or feature_pack in {"market", "consulting"}:
+        slide = add_slide("Market intelligence appendix")
+        market_rows = [
+            f"Sector signal: {sector} valuation context should be interpreted alongside buyer activity and public comp sentiment.",
+            "Strategic M&A examples help explain why certain categories command higher multiples.",
+            "Use this appendix to support the 'why now' narrative without overloading the executive recommendation.",
+        ]
+        add_bullet_rows(slide, market_rows, 1.45, 3)
+
+    slide = add_slide("Appendix: data quality and model notes")
+    appendix_rows = [
+        "Financial data uses latest available public market and company database values available to Valence.",
+        "Implied valuation ranges are directional and should be paired with diligence on ARR, NRR, margin profile, and customer quality.",
+        "Exported slides are generated from user-selected comps; changing selected companies changes the valuation evidence base.",
+        "This deck is original Valence output and does not copy third-party consulting presentation templates.",
+    ]
+    add_bullet_rows(slide, appendix_rows, 1.45, 4)
+
+    slide = add_slide("Recommended next steps")
+    next_steps = [
+        "Validate selected comps against product scope, buyer, and end-market exposure.",
+        "Pressure-test valuation range with growth, profitability, and retention sensitivities.",
+        "Prepare appendix support for top objections around multiple selection.",
+    ]
+    if instructions:
+        next_steps.append(f"Custom brief: {instructions[:150]}")
+    for index, item in enumerate(next_steps[:4]):
+        add_panel(slide, 0.85, 1.45 + index * 0.95, 11.5, 0.66)
+        add_text(slide, item, 1.1, 1.62 + index * 0.95, 10.8, 0.28, 15, index == 0, ink)
+
+    output = io.BytesIO()
+    prs.save(output)
+    output.seek(0)
+    raw_name = text_value(private, ["company_name", "name", "company"], selected_ticker or "company")
+    filename = re.sub(r"[^A-Za-z0-9_-]+", "-", raw_name).strip("-").lower() or "company"
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="valence-deck-{filename}.pptx"'},
+    )
 
 
 @app.post("/api/download-report")

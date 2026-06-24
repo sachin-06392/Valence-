@@ -297,6 +297,14 @@ body {
   text-transform: uppercase;
 }
 
+.heatmap-heading strong {
+  display: block;
+  margin-top: 5px;
+  color: #f8fafc;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
 .heatmap-heading p {
   max-width: 500px;
   color: #94a3b8;
@@ -311,24 +319,41 @@ body {
 }
 
 .heatmap-tile {
-  min-height: 92px;
+  min-height: 172px;
+  overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.14);
   border-radius: 14px;
-  padding: 12px;
   text-align: left;
   background: rgba(15, 23, 42, 0.5);
-  cursor: pointer;
   transition: border-color 0.18s ease, transform 0.18s ease, background 0.18s ease;
 }
 
-.heatmap-tile:hover {
+.heatmap-tile:hover,
+.heatmap-tile.selected {
   transform: translateY(-2px);
   border-color: rgba(34, 211, 238, 0.34);
 }
 
+.heatmap-tile.selected {
+  box-shadow: inset 0 0 0 1px rgba(34, 211, 238, 0.26), 0 18px 45px rgba(34, 211, 238, 0.08);
+}
+
+.heatmap-tile button {
+  width: 100%;
+  min-height: 142px;
+  border: 0;
+  padding: 12px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
 .heatmap-tile span,
 .heatmap-tile strong,
-.heatmap-tile em {
+.heatmap-tile em,
+.heatmap-tile small,
+.heatmap-tile b {
   display: block;
 }
 
@@ -339,15 +364,54 @@ body {
 }
 
 .heatmap-tile strong {
-  margin: 8px 0 4px;
+  margin: 9px 0 1px;
   color: #f8fafc;
   font-size: 22px;
 }
 
+.heatmap-tile small {
+  color: #67e8f9;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .heatmap-tile em {
+  margin-top: 8px;
   color: #94a3b8;
   font-size: 11px;
   font-style: normal;
+}
+
+.heatmap-tile p {
+  margin-top: 8px;
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.heatmap-tile b {
+  margin-top: 8px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.heatmap-tile a {
+  display: block;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 9px 12px 10px;
+  color: #67e8f9;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.heatmap-tile a:hover {
+  color: #a5f3fc;
+  text-decoration: underline;
 }
 
 .heatmap-tile.hot {

@@ -208,8 +208,10 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
   const [colorway, setColorway] = useState("midnight");
   const [componentStyle, setComponentStyle] = useState("strategy");
   const [density, setDensity] = useState("balanced");
+  const [audience, setAudience] = useState("investor");
+  const [featurePack, setFeaturePack] = useState("consulting");
   const [instructions, setInstructions] = useState(
-    "Make this competition-ready: clear recommendation, strong valuation defense, judge Q&A prep, and polished consulting visuals."
+    "Make this consulting-grade: executive storyline, quantified valuation defense, proper appendix support, judge Q&A prep, and polished strategy visuals."
   );
   const [downloading, setDownloading] = useState("");
 
@@ -241,6 +243,8 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
         colorway,
         componentStyle,
         density,
+        audience,
+        featurePack,
         instructions,
       },
     };
@@ -249,10 +253,17 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
   const downloadFile = async (kind) => {
     if (!selectedComps.length) return;
 
+    const isDeckExport = kind === "deck" || kind === "google";
+    const exportLabel = kind === "report"
+      ? "PDF"
+      : kind === "google"
+        ? "Google Slides-ready deck"
+        : "PowerPoint deck";
+
     try {
       setDownloading(kind);
 
-      const response = await fetch(apiUrl(kind === "deck" ? "/api/generate-deck" : "/api/generate-report"), {
+      const response = await fetch(apiUrl(isDeckExport ? "/api/generate-deck" : "/api/generate-report"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -261,7 +272,7 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
       });
 
       if (!response.ok) {
-        let message = `${kind === "deck" ? "Slide deck" : "Report"} download failed`;
+        let message = `${exportLabel} download failed`;
 
         try {
           const errorText = await response.text();
@@ -281,9 +292,13 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
 
       const a = document.createElement("a");
       a.href = url;
-      a.download = kind === "deck"
-        ? `valence-deck-${ticker}.pptx`
-        : `valence-report-${ticker}.pdf`;
+      if (kind === "report") {
+        a.download = `valence-report-${ticker}.pdf`;
+      } else if (kind === "google") {
+        a.download = `valence-google-slides-${ticker}.pptx`;
+      } else {
+        a.download = `valence-deck-${ticker}.pptx`;
+      }
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -291,8 +306,8 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
     } catch (err) {
       console.error(err);
       alert(
-        kind === "deck"
-          ? "Could not download the PowerPoint deck. Make sure the backend has python-pptx installed and is running."
+        isDeckExport
+          ? `Could not download the ${exportLabel}. Make sure the backend has python-pptx installed and is running.`
           : "Could not download the report. Make sure the backend is running."
       );
     } finally {
@@ -311,7 +326,7 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
   return (
     <aside className="report-builder">
       <div className="report-builder-head">
-        <span>Export Studio</span>
+        <span>PowerPoint Studio</span>
         <strong>{enabledSections} sections</strong>
       </div>
 
@@ -348,6 +363,10 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
             <option value="boardroom">Boardroom blue</option>
             <option value="emerald">Emerald slate</option>
             <option value="plum">Plum strategy</option>
+            <option value="onyx">Onyx magenta</option>
+            <option value="copper">Copper graphite</option>
+            <option value="arctic">Arctic glass</option>
+            <option value="terminal">Terminal green</option>
           </select>
         </label>
 
@@ -357,6 +376,29 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
             <option value="strategy">Strategy tiles</option>
             <option value="metrics">Metric bands</option>
             <option value="mosaic">Mosaic brief</option>
+            <option value="banker">Banker memo</option>
+            <option value="board">Board update</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Audience</span>
+          <select value={audience} onChange={(event) => setAudience(event.target.value)}>
+            <option value="investor">Investor / banker</option>
+            <option value="competition">Case competition judges</option>
+            <option value="founder">Founder / operator</option>
+            <option value="board">Board room</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Feature pack</span>
+          <select value={featurePack} onChange={(event) => setFeaturePack(event.target.value)}>
+            <option value="consulting">Consulting-grade storyline</option>
+            <option value="competition">Recommendation + judge Q&A</option>
+            <option value="valuation">Valuation defense</option>
+            <option value="market">Market intelligence appendix</option>
+            <option value="operating">Operating KPI story</option>
           </select>
         </label>
 
@@ -385,17 +427,22 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
         <h3>{companyName} Comp Set Report</h3>
         <p>
           A consulting-style slide deck with {selectedComps.length || "selected"} public comps,
-          {` ${colorway.replace("-", " ")} colors, ${componentStyle} components, and ${density} detail`}
+          {` ${colorway.replace("-", " ")} colors, ${componentStyle} components, ${audience.replace("-", " ")} audience framing, and ${density} detail`}
           {overallRange
             ? ` with an implied EV range of ${fmtM(overallRange.low)} to ${fmtM(overallRange.high)}.`
             : "."}
         </p>
       </div>
 
+      <div className="export-format-heading">
+        <span>Choose download format</span>
+        <p>PDF is best for sharing. PPTX is editable in PowerPoint. Google Slides downloads a Slides-ready PPTX you can import into Google Slides.</p>
+      </div>
+
       <div className="export-actions">
         <button
           type="button"
-          className="report-btn secondary"
+          className="report-btn pdf"
           onClick={() => downloadFile("report")}
           disabled={!selectedComps.length || downloading !== ""}
         >
@@ -408,7 +455,16 @@ function ReportBuilder({ selectedComps, privateCompany, overallRange, results })
           onClick={() => downloadFile("deck")}
           disabled={!selectedComps.length || downloading !== ""}
         >
-          {downloading === "deck" ? "Building deck..." : "Download PowerPoint"}
+          {downloading === "deck" ? "Building PPTX..." : "Download PPTX"}
+        </button>
+
+        <button
+          type="button"
+          className="report-btn google"
+          onClick={() => downloadFile("google")}
+          disabled={!selectedComps.length || downloading !== ""}
+        >
+          {downloading === "google" ? "Building Slides file..." : "Google Slides"}
         </button>
       </div>
     </aside>
@@ -541,13 +597,27 @@ export default function ResultsPanel({
     () => compsWithIds.slice(0, Math.min(5, compsWithIds.length)).map((c) => c._compId),
     [compsWithIds]
   );
-  const [selectedCompIds, setSelectedCompIds] = useState([]);
+  const [selectedCompIds, setSelectedCompIds] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("valenceSelectedCompIds") || "[]");
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
-    if (defaultCompIds.length) {
+    const selectedStillExists = selectedCompIds.some((id) =>
+      compsWithIds.some((comp) => comp._compId === id)
+    );
+
+    if ((!selectedCompIds.length || !selectedStillExists) && defaultCompIds.length) {
       setSelectedCompIds(defaultCompIds);
     }
-  }, [defaultCompIds]);
+  }, [compsWithIds, defaultCompIds, selectedCompIds]);
+
+  useEffect(() => {
+    localStorage.setItem("valenceSelectedCompIds", JSON.stringify(selectedCompIds));
+  }, [selectedCompIds]);
 
   const selectedComps = useMemo(
     () => compsWithIds.filter((c) => selectedCompIds.includes(c._compId)),
@@ -615,11 +685,22 @@ export default function ResultsPanel({
         )}
       </div>
 
+      <div className="results-action-bar">
+        <div>
+          <strong>Ready to package this analysis?</strong>
+          <span>Use the PowerPoint studio to choose slides, colors, audience, and deck style.</span>
+        </div>
+        <button type="button" onClick={() => setTab("export")}>
+          Make PowerPoint
+        </button>
+      </div>
+
       <div className="tabs">
         {[
           ['comps', 'Comparable Companies'],
           ['multiples', 'Multiples Summary'],
-          ['valuation', 'Implied Valuation']
+          ['valuation', 'Implied Valuation'],
+          ['export', 'Make PowerPoint']
         ].map(([k, label]) => (
           <button
             key={k}
@@ -633,20 +714,13 @@ export default function ResultsPanel({
 
       <div className="tab-content">
         {tab === 'comps' && (
-          <div className="comp-builder-grid">
+          <div className="comp-builder-grid table-only">
             <CompsTable
               comps={compsWithIds}
               privateCompany={privateCompany}
               results={results}
               selectedCompIds={selectedCompIds}
               onToggleComp={toggleComp}
-            />
-
-            <ReportBuilder
-              selectedComps={selectedComps}
-              privateCompany={privateCompany}
-              overallRange={overall_range}
-              results={results}
             />
           </div>
         )}
@@ -665,6 +739,15 @@ export default function ResultsPanel({
           <ValuationOutput
             implied={implied}
             overall_range={overall_range}
+          />
+        )}
+
+        {tab === 'export' && (
+          <ReportBuilder
+            selectedComps={selectedComps}
+            privateCompany={privateCompany}
+            overallRange={overall_range}
+            results={results}
           />
         )}
       </div>
