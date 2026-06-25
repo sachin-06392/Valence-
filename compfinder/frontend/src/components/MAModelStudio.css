@@ -26,8 +26,8 @@
 .ma-data-note strong {
   color: #67e8f9;
   font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.12em;
+  font-weight: 800;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
@@ -35,9 +35,10 @@
   max-width: 760px;
   margin: 10px 0 12px;
   color: #f8fafc;
-  font-size: clamp(32px, 4.2vw, 56px);
-  font-weight: 900;
-  line-height: 1.04;
+  font-family: var(--font-display);
+  font-size: clamp(34px, 4vw, 54px);
+  font-weight: 800;
+  line-height: 1.08;
   letter-spacing: 0;
   text-transform: uppercase;
 }
@@ -107,7 +108,8 @@
 .ma-results-toolbar strong,
 .ma-detail-header h2 {
   color: #f8fafc;
-  font-weight: 900;
+  font-family: var(--font-display);
+  font-weight: 800;
   text-transform: uppercase;
 }
 
@@ -126,8 +128,8 @@
 .ma-assumption > span {
   color: #cbd5e1;
   font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -148,6 +150,14 @@
 .ma-select-field input::placeholder {
   color: #64748b;
   opacity: 1;
+}
+
+.ma-select-field small {
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .ma-acquirer-card {
@@ -210,8 +220,8 @@
   color: #06202a;
   background: linear-gradient(135deg, #67e8f9, #34d399);
   font: inherit;
-  font-weight: 900;
-  letter-spacing: 0.08em;
+  font-weight: 800;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   cursor: pointer;
 }
@@ -327,7 +337,7 @@
   padding: 5px 8px;
   color: #67e8f9;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .ma-reco-top strong,
@@ -340,7 +350,7 @@
   color: #06202a;
   background: #67e8f9;
   font-size: 16px;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .ma-reco-top strong.score-low {
@@ -416,7 +426,7 @@
   background: rgba(34, 211, 238, 0.07);
   font: inherit;
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   cursor: pointer;
@@ -450,8 +460,8 @@
   min-height: 340px;
   place-items: center;
   color: #94a3b8;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 

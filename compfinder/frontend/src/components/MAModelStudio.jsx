@@ -7,6 +7,11 @@ const fmtB = (value) => (value != null ? `$${Number(value).toFixed(2)}B` : "-");
 const fmtM = (value) => (value != null ? `$${Number(value).toFixed(0)}M` : "-");
 const fmtX = (value) => (value != null ? `${Number(value).toFixed(1)}x` : "-");
 const fmtPct = (value) => (value != null ? `${Number(value).toFixed(1)}%` : "-");
+const fmtScore = (value) => {
+  const score = Number(value);
+  if (!Number.isFinite(score)) return "-";
+  return Number.isInteger(score) ? String(score) : score.toFixed(1);
+};
 
 const defaultAssumptions = {
   acquirer_ticker: "",
@@ -22,6 +27,9 @@ const defaultAssumptions = {
   max_results: 5,
   candidate_limit: 120,
 };
+
+const COMPANY_PICKER_LIMIT = 10000;
+const COMPANY_UNIVERSE_CACHE_KEY = "valenceMACompanyUniverse.v1";
 
 const fallbackUniverse = [
   { ticker: "MSFT", name: "Microsoft", sector: "Enterprise Software / SaaS", raw_sector: "saas_tech", sub: "Cloud / AI / Enterprise Software", ev_b: 3600, ev_rev: 13.4, has_financials: true },
@@ -314,6 +322,54 @@ const mergeCompanyLists = (...lists) => {
   return Array.from(byTicker.values()).sort((a, b) => a.ticker.localeCompare(b.ticker));
 };
 
+const splitSearchParts = (value) =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[./-]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+const companyMatchesPrefix = (company, query) => {
+  const cleanQuery = String(query || "").toLowerCase().trim();
+  if (!cleanQuery) return true;
+
+  const fields = [company?.ticker, company?.name, company?.sub];
+  return fields.some((field) => {
+    const normalized = String(field || "").toLowerCase().trim();
+    return (
+      normalized.startsWith(cleanQuery) ||
+      splitSearchParts(normalized).some((part) => part.startsWith(cleanQuery))
+    );
+  });
+};
+
+const readCachedUniverse = () => {
+  try {
+    const cached = JSON.parse(localStorage.getItem(COMPANY_UNIVERSE_CACHE_KEY) || "[]");
+    return Array.isArray(cached) ? cached : [];
+  } catch {
+    return [];
+  }
+};
+
+const cacheUniverse = (companies) => {
+  if (!Array.isArray(companies) || companies.length < COMPANY_PICKER_LIMIT) return;
+  try {
+    localStorage.setItem(
+      COMPANY_UNIVERSE_CACHE_KEY,
+      JSON.stringify(companies.slice(0, COMPANY_PICKER_LIMIT))
+    );
+  } catch {
+    // Browser storage can be full or blocked; the app can still run without the cache.
+  }
+};
+
+const fetchSecUniverse = async () => {
+  const secResponse = await fetch("https://www.sec.gov/files/company_tickers.json");
+  if (!secResponse.ok) return [];
+  return mergeCuratedMetrics(normalizeSecUniverse(await secResponse.json()));
+};
+
 function AssumptionField({ label, value, onChange, min = 0, max = 100, suffix = "%" }) {
   return (
     <label className="ma-assumption">
@@ -338,7 +394,7 @@ function AssumptionField({ label, value, onChange, min = 0, max = 100, suffix = 
 function ScoreMeter({ score }) {
   const width = Math.max(0, Math.min(Number(score || 0), 99));
   return (
-    <div className="ma-score-meter" aria-label={`Deal score ${score}`}>
+    <div className="ma-score-meter" aria-label={`Deal score ${fmtScore(score)}`}>
       <span style={{ width: `${width}%` }} />
     </div>
   );
@@ -357,7 +413,7 @@ function RecommendationCard({ item, isActive, onSelect, onOpen }) {
       <button type="button" className="ma-reco-card-main" onClick={onOpen}>
         <div className="ma-reco-top">
           <span>{item.target.ticker}</span>
-          <strong className={`score-${scoreTone}`}>{item.score}</strong>
+          <strong className={`score-${scoreTone}`}>{fmtScore(item.score)}</strong>
         </div>
         <h3>{item.acquirer.name} acquires {item.target.name}</h3>
         <p>{item.rationale?.[0]}</p>
@@ -405,7 +461,7 @@ function DetailPanel({ deal, onOpen }) {
           <span>Recommended transaction</span>
           <h2>{deal.acquirer.name} / {deal.target.name}</h2>
         </div>
-        <strong>{deal.score}</strong>
+        <strong>{fmtScore(deal.score)}</strong>
       </div>
 
       <div className="ma-parties">
@@ -487,6 +543,7 @@ export default function MAModelStudio() {
   const [error, setError] = useState("");
   const [meta, setMeta] = useState(null);
   const [coverage, setCoverage] = useState(null);
+  const [acquirerQuery, setAcquirerQuery] = useState("");
 
   const activeDeal = recommendations[activeIndex];
 
@@ -520,16 +577,15 @@ export default function MAModelStudio() {
     [universe, assumptions.target_ticker]
   );
 
-  const targetOptions = useMemo(() => {
-    const query = String(assumptions.target_query || "").toLowerCase().trim();
+  const acquirerOptions = useMemo(() => (
+    universe.filter((company) => companyMatchesPrefix(company, acquirerQuery))
+  ), [universe, acquirerQuery]);
 
+  const targetOptions = useMemo(() => {
     return universe
       .filter((company) => company.ticker !== assumptions.acquirer_ticker)
       .filter((company) => !assumptions.target_sector || company.raw_sector === assumptions.target_sector)
-      .filter((company) => {
-        if (!query) return true;
-        return `${company.ticker} ${company.name} ${company.sub}`.toLowerCase().includes(query);
-      });
+      .filter((company) => companyMatchesPrefix(company, assumptions.target_query));
   }, [universe, assumptions.acquirer_ticker, assumptions.target_sector, assumptions.target_query]);
 
   const set = (key, value) => {
@@ -629,11 +685,10 @@ export default function MAModelStudio() {
         .filter((company) => company.ticker !== buyer.ticker)
         .filter((company) => company.ticker !== selectedTarget?.ticker)
         .filter((company) => !nextAssumptions.target_sector || company.raw_sector === nextAssumptions.target_sector)
-        .filter((company) => {
-          const query = String(nextAssumptions.target_query || "").toLowerCase().trim();
-          if (!query) return true;
-          return `${company.ticker} ${company.name} ${company.sub}`.toLowerCase().includes(query);
-        })
+        .filter((company) => (
+          nextAssumptions.target_ticker ||
+          companyMatchesPrefix(company, nextAssumptions.target_query)
+        ))
         .slice(0, Math.max(0, Math.min(Number(nextAssumptions.max_results || 5), 5) - 1))
         .map((company, index) => buildLocalDeal(buyer, company, index + 1));
       const fallbackDeals = [
@@ -658,13 +713,30 @@ export default function MAModelStudio() {
   useEffect(() => {
     async function loadUniverse() {
       try {
-        const response = await fetch(apiUrl("/api/ma/universe?limit=12000"));
+        const response = await fetch(apiUrl(`/api/ma/universe?limit=${COMPANY_PICKER_LIMIT}`));
         if (!response.ok) {
           throw new Error("Universe endpoint unavailable");
         }
         const payload = await response.json();
         const backendCompanies = mergeCuratedMetrics(payload.companies || []);
-        const companies = mergeCompanyLists(backendCompanies, fallbackUniverse);
+        const cachedCompanies = readCachedUniverse();
+        let secCompanies = [];
+
+        if (backendCompanies.length < COMPANY_PICKER_LIMIT && cachedCompanies.length < COMPANY_PICKER_LIMIT) {
+          try {
+            secCompanies = await fetchSecUniverse();
+          } catch {
+            secCompanies = [];
+          }
+        }
+
+        const companies = mergeCompanyLists(
+          backendCompanies,
+          cachedCompanies,
+          secCompanies,
+          fallbackUniverse
+        ).slice(0, COMPANY_PICKER_LIMIT);
+        cacheUniverse(companies);
         setUniverse(companies);
         setSectors(payload.sectors?.length ? payload.sectors : fallbackSectors);
         setCoverage({
@@ -673,18 +745,21 @@ export default function MAModelStudio() {
           returned: companies.length,
         });
       } catch {
-        let companies = [];
+        let companies = readCachedUniverse();
 
-        try {
-          const secResponse = await fetch("https://www.sec.gov/files/company_tickers.json");
-          if (secResponse.ok) {
-            companies = mergeCuratedMetrics(normalizeSecUniverse(await secResponse.json()));
+        if (companies.length < COMPANY_PICKER_LIMIT) {
+          try {
+            companies = await fetchSecUniverse();
+          } catch {
+            companies = [];
           }
-        } catch {
-          companies = [];
         }
 
-        const fallbackCompanies = companies.length ? companies : fallbackUniverse;
+        const fallbackCompanies = mergeCompanyLists(
+          companies,
+          fallbackUniverse
+        ).slice(0, COMPANY_PICKER_LIMIT);
+        cacheUniverse(fallbackCompanies);
 
         setUniverse(fallbackCompanies);
         setSectors(fallbackSectors);
@@ -732,21 +807,32 @@ export default function MAModelStudio() {
 
           <label className="ma-select-field">
             <span>ACQUIRER</span>
+            <input
+              value={acquirerQuery}
+              onChange={(event) => setAcquirerQuery(event.target.value)}
+              placeholder="TYPE A TICKER OR COMPANY"
+            />
             <select
               value={assumptions.acquirer_ticker}
               onChange={(event) => set("acquirer_ticker", event.target.value)}
             >
               <option value="">SELECT ACQUIRER</option>
-              {universe.map((company) => (
+              {acquirerOptions.map((company) => (
                 <option key={company.ticker} value={company.ticker}>
                   {company.ticker} · {company.name}
                 </option>
               ))}
             </select>
+            <small>{acquirerOptions.length.toLocaleString()} matches</small>
           </label>
 
           <label className="ma-select-field">
             <span>COMPANY BEING ACQUIRED</span>
+            <input
+              value={assumptions.target_query}
+              onChange={(event) => set("target_query", event.target.value)}
+              placeholder="TYPE A TICKER OR COMPANY"
+            />
             <select
               value={assumptions.target_ticker}
               onChange={(event) => set("target_ticker", event.target.value)}
@@ -758,6 +844,7 @@ export default function MAModelStudio() {
                 </option>
               ))}
             </select>
+            <small>{targetOptions.length.toLocaleString()} matches</small>
           </label>
 
           <label className="ma-select-field">
@@ -773,15 +860,6 @@ export default function MAModelStudio() {
                 </option>
               ))}
             </select>
-          </label>
-
-          <label className="ma-select-field">
-            <span>TARGET SEARCH</span>
-            <input
-              value={assumptions.target_query}
-              onChange={(event) => set("target_query", event.target.value)}
-              placeholder="OPTIONAL TICKER, COMPANY, OR KEYWORD"
-            />
           </label>
 
           {acquirer && (

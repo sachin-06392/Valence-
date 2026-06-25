@@ -55,6 +55,7 @@ SEC_HEADERS = {
     "Accept-Encoding": "gzip, deflate",
 }
 TICKER_CIK_URL = "https://www.sec.gov/files/company_tickers.json"
+MA_UNIVERSE_LIMIT = 10000
 
 
 # ── Scoring ───────────────────────────────────────────────────────────────────
@@ -679,22 +680,34 @@ def build_merger_case(acquirer, target, req: MARecommendationRequest):
     }
 
 
+def company_matches_prefix(company: Dict[str, Any], search_text: str) -> bool:
+    if not search_text:
+        return True
+
+    fields = [
+        str(company.get("ticker", "")),
+        str(company.get("name", "")),
+        str(company.get("sub", "")),
+    ]
+    for field in fields:
+        normalized = field.lower().strip()
+        if normalized.startswith(search_text):
+            return True
+        if any(part.startswith(search_text) for part in normalized.replace("/", " ").replace("-", " ").split()):
+            return True
+    return False
+
+
 @app.get("/api/ma/universe")
-def ma_universe(limit: int = 6000, search: str = ""):
+def ma_universe(limit: int = MA_UNIVERSE_LIMIT, search: str = ""):
     public_universe = load_sec_public_company_universe()
     search_text = (search or "").lower().strip()
-    limit = max(1, min(int(limit or 6000), 20000))
+    limit = max(1, min(int(limit or MA_UNIVERSE_LIMIT), 20000))
     companies = []
 
     for company in public_universe:
-        if search_text:
-            haystack = " ".join([
-                company.get("ticker", ""),
-                company.get("name", ""),
-                company.get("sub", ""),
-            ]).lower()
-            if search_text not in haystack:
-                continue
+        if not company_matches_prefix(company, search_text):
+            continue
 
         fin = FINANCIALS_DB.get(company["ticker"], {})
         companies.append({
@@ -743,7 +756,7 @@ def ma_recommendations(req: MARecommendationRequest):
     def candidate_matches(company):
         if company["ticker"] == acquirer["ticker"]:
             return False
-        if target_query:
+        if target_query and not target_ticker:
             haystack = " ".join([
                 company.get("ticker", ""),
                 company.get("name", ""),
