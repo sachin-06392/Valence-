@@ -110,6 +110,21 @@ class DeckRequest(ReportRequest):
     deckOptions: Dict[str, Any] = {}
 
 
+class MARecommendationRequest(BaseModel):
+    acquirer_ticker: Optional[str] = "CRM"
+    target_ticker: Optional[str] = ""
+    target_sector: Optional[str] = ""
+    target_query: Optional[str] = ""
+    max_results: Optional[int] = 5
+    candidate_limit: Optional[int] = 120
+    premium_pct: Optional[float] = 25.0
+    cash_pct: Optional[float] = 35.0
+    debt_pct: Optional[float] = 35.0
+    stock_pct: Optional[float] = 30.0
+    cost_synergy_pct: Optional[float] = 8.0
+    revenue_synergy_pct: Optional[float] = 4.0
+
+
 # ── Find Comps ────────────────────────────────────────────────────────────────
 @app.post("/api/find-comps")
 def find_comps(inp: PrivateCompanyInput):
@@ -199,6 +214,625 @@ def find_comps(inp: PrivateCompanyInput):
         "overall_range": overall_range,
         "sector_label":  SECTOR_LABEL_MAP.get(target_sector, inp.sector),
         "comps_count":   len(top),
+    }
+
+
+# ── M&A Recommendation Engine ────────────────────────────────────────────────
+FALLBACK_MA_DEALS = [
+    {
+        "buyer": "Salesforce",
+        "target": "Informatica",
+        "value": "$8.0B",
+        "sector": "Data Infrastructure",
+        "status": "Announced",
+        "date": "2025-05-27",
+        "angle": "Strategic data cloud expansion across AI, governance, and integration.",
+        "sourceName": "Salesforce Newsroom",
+        "sourceUrl": "https://www.salesforce.com/news/press-releases/2025/05/27/salesforce-signs-definitive-agreement-to-acquire-informatica/",
+    },
+    {
+        "buyer": "HPE",
+        "target": "Juniper Networks",
+        "value": "$14.0B",
+        "sector": "AI Networking",
+        "status": "Closed",
+        "date": "2025-07-02",
+        "angle": "Networking scale-up for AI-native enterprise and cloud infrastructure.",
+        "sourceName": "HPE Newsroom",
+        "sourceUrl": "https://www.hpe.com/us/en/newsroom/press-release/2025/07/hewlett-packard-enterprise-completes-acquisition-of-juniper-networks.html",
+    },
+    {
+        "buyer": "Synopsys",
+        "target": "Ansys",
+        "value": "$35.0B",
+        "sector": "Engineering Software",
+        "status": "Closed",
+        "date": "2025-07-17",
+        "angle": "Silicon-to-systems platform consolidation across EDA and simulation.",
+        "sourceName": "Synopsys Newsroom",
+        "sourceUrl": "https://news.synopsys.com/2025-07-17-Synopsys-Completes-Acquisition-of-Ansys",
+    },
+    {
+        "buyer": "Cisco",
+        "target": "Splunk",
+        "value": "$28.0B",
+        "sector": "Observability",
+        "status": "Closed",
+        "date": "2024-03-18",
+        "angle": "Security, observability, and data analytics consolidation.",
+        "sourceName": "Cisco Newsroom",
+        "sourceUrl": "https://newsroom.cisco.com/c/r/newsroom/en/us/a/y2024/m03/cisco-completes-acquisition-of-splunk.html",
+    },
+    {
+        "buyer": "IBM",
+        "target": "HashiCorp",
+        "value": "$6.4B",
+        "sector": "Cloud Infrastructure",
+        "status": "Closed",
+        "date": "2025-02-27",
+        "angle": "Hybrid cloud automation and infrastructure lifecycle management.",
+        "sourceName": "IBM Newsroom",
+        "sourceUrl": "https://newsroom.ibm.com/2025-02-27-IBM-Completes-Acquisition-of-HashiCorp",
+    },
+    {
+        "buyer": "Google",
+        "target": "Wiz",
+        "value": "$32.0B",
+        "sector": "Cloud Security",
+        "status": "Announced",
+        "date": "2025-03-18",
+        "angle": "Cloud-native security platform expansion for Google Cloud.",
+        "sourceName": "Google Cloud Blog",
+        "sourceUrl": "https://cloud.google.com/blog/products/identity-security/google-agreement-to-acquire-wiz",
+    },
+]
+
+
+SECTOR_THEMES = {
+    "public_unclassified": {
+        "label": "All Public Companies",
+        "themes": ["scale", "public-market liquidity", "strategic optionality"],
+        "best_targets": ["saas_tech", "healthcare", "financial", "consumer", "industrials", "public_unclassified"],
+    },
+    "saas_tech": {
+        "label": "Enterprise Software / SaaS",
+        "themes": ["AI workflow automation", "data platform consolidation", "vertical SaaS expansion"],
+        "best_targets": ["saas_tech", "financial", "healthcare"],
+    },
+    "healthcare": {
+        "label": "Healthcare Technology",
+        "themes": ["clinical workflow digitization", "connected diagnostics", "patient engagement"],
+        "best_targets": ["healthcare", "saas_tech"],
+    },
+    "financial": {
+        "label": "FinTech / Payments",
+        "themes": ["embedded finance", "payment rails", "wealth and consumer finance distribution"],
+        "best_targets": ["financial", "saas_tech", "consumer"],
+    },
+    "consumer": {
+        "label": "Consumer / Retail",
+        "themes": ["marketplace scale", "loyalty and commerce data", "category consolidation"],
+        "best_targets": ["consumer", "financial", "saas_tech"],
+    },
+    "industrials": {
+        "label": "Industrial Technology",
+        "themes": ["automation", "smart infrastructure", "energy efficiency"],
+        "best_targets": ["industrials", "saas_tech"],
+    },
+}
+
+MA_SEED_COMPANIES = [
+    {"ticker": "MSFT", "name": "Microsoft", "sector": "saas_tech", "sub": "Cloud / AI / Enterprise Software", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "GOOGL", "name": "Alphabet", "sector": "saas_tech", "sub": "Search / Cloud / AI", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "AAPL", "name": "Apple", "sector": "consumer", "sub": "Consumer Technology", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "AMZN", "name": "Amazon", "sector": "consumer", "sub": "E-Commerce / Cloud", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "ADBE", "name": "Adobe", "sector": "saas_tech", "sub": "Creative / Marketing Software", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "CSCO", "name": "Cisco", "sector": "industrials", "sub": "Networking / Security", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "PANW", "name": "Palo Alto Networks", "sector": "saas_tech", "sub": "Cybersecurity", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "NET", "name": "Cloudflare", "sector": "saas_tech", "sub": "Network / Security", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "MCD", "name": "McDonald's", "sector": "consumer", "sub": "Restaurants", "geo": "Global", "source": "Valence M&A seed"},
+    {"ticker": "GIS", "name": "General Mills", "sector": "consumer", "sub": "Packaged Food", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "KHC", "name": "Kraft Heinz", "sector": "consumer", "sub": "Packaged Food", "geo": "North America", "source": "Valence M&A seed"},
+    {"ticker": "MDLZ", "name": "Mondelez International", "sector": "consumer", "sub": "Packaged Food", "geo": "Global", "source": "Valence M&A seed"},
+]
+
+MA_SEED_FINANCIALS = {
+    "MSFT": {"market_cap": 3.7e12, "ev": 3.6e12, "revenue": 268e9, "ebitda": 140e9, "gross_profit": 185e9, "net_income": 95e9, "rev_growth": 0.15, "gross_margin": 0.69, "ev_rev": 13.4, "ev_ebitda": 25.7, "ev_gp": 19.5, "pe_ratio": 39},
+    "GOOGL": {"market_cap": 2.2e12, "ev": 2.1e12, "revenue": 350e9, "ebitda": 125e9, "gross_profit": 205e9, "net_income": 92e9, "rev_growth": 0.13, "gross_margin": 0.59, "ev_rev": 6.0, "ev_ebitda": 16.8, "ev_gp": 10.2, "pe_ratio": 24},
+    "AAPL": {"market_cap": 3.1e12, "ev": 3.2e12, "revenue": 390e9, "ebitda": 135e9, "gross_profit": 180e9, "net_income": 100e9, "rev_growth": 0.04, "gross_margin": 0.46, "ev_rev": 8.2, "ev_ebitda": 23.7, "ev_gp": 17.8, "pe_ratio": 31},
+    "AMZN": {"market_cap": 2.3e12, "ev": 2.4e12, "revenue": 640e9, "ebitda": 115e9, "gross_profit": 310e9, "net_income": 60e9, "rev_growth": 0.11, "gross_margin": 0.48, "ev_rev": 3.8, "ev_ebitda": 20.9, "ev_gp": 7.7, "pe_ratio": 38},
+    "ADBE": {"market_cap": 215e9, "ev": 210e9, "revenue": 21e9, "ebitda": 9e9, "gross_profit": 18e9, "net_income": 5.6e9, "rev_growth": 0.10, "gross_margin": 0.86, "ev_rev": 10.1, "ev_ebitda": 23.3, "ev_gp": 11.7, "pe_ratio": 38},
+    "CSCO": {"market_cap": 210e9, "ev": 205e9, "revenue": 54e9, "ebitda": 18e9, "gross_profit": 34e9, "net_income": 11e9, "rev_growth": 0.02, "gross_margin": 0.63, "ev_rev": 3.8, "ev_ebitda": 11.4, "ev_gp": 6.0, "pe_ratio": 19},
+    "PANW": {"market_cap": 125e9, "ev": 120e9, "revenue": 8.7e9, "ebitda": 2.2e9, "gross_profit": 6.5e9, "net_income": 1.1e9, "rev_growth": 0.16, "gross_margin": 0.75, "ev_rev": 13.8, "ev_ebitda": 54.5, "ev_gp": 18.5, "pe_ratio": 110},
+    "NET": {"market_cap": 32e9, "ev": 31e9, "revenue": 1.7e9, "ebitda": 0.2e9, "gross_profit": 1.3e9, "net_income": 0.05e9, "rev_growth": 0.27, "gross_margin": 0.76, "ev_rev": 18.2, "ev_ebitda": 155.0, "ev_gp": 23.8, "pe_ratio": None},
+    "MCD": {"market_cap": 220e9, "ev": 270e9, "revenue": 26e9, "ebitda": 14e9, "gross_profit": 15e9, "net_income": 8.5e9, "rev_growth": 0.04, "gross_margin": 0.58, "ev_rev": 10.4, "ev_ebitda": 19.3, "ev_gp": 18.0, "pe_ratio": 26},
+    "GIS": {"market_cap": 35e9, "ev": 48e9, "revenue": 20e9, "ebitda": 4.5e9, "gross_profit": 7e9, "net_income": 2.5e9, "rev_growth": 0.01, "gross_margin": 0.35, "ev_rev": 2.4, "ev_ebitda": 10.7, "ev_gp": 6.9, "pe_ratio": 14},
+    "KHC": {"market_cap": 40e9, "ev": 60e9, "revenue": 27e9, "ebitda": 6.2e9, "gross_profit": 9e9, "net_income": 3e9, "rev_growth": 0.01, "gross_margin": 0.33, "ev_rev": 2.2, "ev_ebitda": 9.7, "ev_gp": 6.7, "pe_ratio": 13},
+    "MDLZ": {"market_cap": 90e9, "ev": 110e9, "revenue": 36e9, "ebitda": 7.5e9, "gross_profit": 14e9, "net_income": 4.8e9, "rev_growth": 0.04, "gross_margin": 0.39, "ev_rev": 3.1, "ev_ebitda": 14.7, "ev_gp": 7.9, "pe_ratio": 19},
+}
+
+
+YF_SECTOR_MAP = [
+    ("saas_tech", ["software", "technology", "information technology", "communication services", "internet", "data", "cloud", "cyber", "semiconductor"]),
+    ("healthcare", ["healthcare", "health care", "biotechnology", "medical", "pharmaceutical", "life sciences"]),
+    ("financial", ["financial", "fintech", "bank", "insurance", "capital markets", "credit", "payments"]),
+    ("consumer", ["consumer", "retail", "ecommerce", "restaurant", "apparel", "travel", "entertainment"]),
+    ("industrials", ["industrial", "manufacturing", "machinery", "construction", "aerospace", "defense", "energy", "utilities", "materials"]),
+]
+
+
+def infer_public_sector(*values):
+    text = " ".join([str(value or "") for value in values]).lower()
+    for sector_key, needles in YF_SECTOR_MAP:
+        if any(needle in text for needle in needles):
+            return sector_key
+    return "public_unclassified"
+
+
+@lru_cache(maxsize=1)
+def load_sec_public_company_universe():
+    try:
+        response = requests.get(TICKER_CIK_URL, headers=SEC_HEADERS, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        data = {}
+
+    records = []
+    seen = set()
+
+    for item in data.values():
+        ticker = str(item.get("ticker", "")).upper().strip()
+        name = str(item.get("title", "")).strip()
+        cik = str(item.get("cik_str", "")).zfill(10)
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        records.append({
+            "ticker": ticker,
+            "name": name or ticker,
+            "sector": "public_unclassified",
+            "sub": "SEC public issuer",
+            "geo": "Public markets",
+            "cik": cik,
+            "source": "SEC company_tickers.json",
+        })
+
+    for company in COMPANY_UNIVERSE:
+        ticker = company["ticker"].upper()
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        records.append({**company, "source": "Valence curated universe"})
+
+    for company in MA_SEED_COMPANIES:
+        ticker = company["ticker"].upper()
+        if ticker in seen:
+            continue
+        seen.add(ticker)
+        records.append(company)
+
+    return sorted(records, key=lambda row: row["ticker"])
+
+
+@lru_cache(maxsize=512)
+def fetch_market_financials(ticker: str):
+    ticker = (ticker or "").upper().strip()
+    if not ticker:
+        return None
+
+    curated = FINANCIALS_DB.get(ticker)
+    if curated:
+        return curated
+
+    seeded = MA_SEED_FINANCIALS.get(ticker)
+    if seeded:
+        return seeded
+
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info or {}
+        revenue = info.get("totalRevenue")
+        ebitda = info.get("ebitda")
+        gross_profit = info.get("grossProfits")
+        ev = info.get("enterpriseValue")
+        market_cap = info.get("marketCap")
+        ev_rev = info.get("enterpriseToRevenue")
+        ev_ebitda = info.get("enterpriseToEbitda")
+        pe_ratio = info.get("trailingPE") or info.get("forwardPE")
+        rev_growth = info.get("revenueGrowth")
+        gross_margin = info.get("grossMargins")
+
+        if not any([revenue, ev, market_cap, ev_rev, ev_ebitda]):
+            return None
+
+        if ev_rev is None and ev and revenue:
+            ev_rev = safe_ratio(ev, revenue, None)
+        if ev_ebitda is None and ev and ebitda and ebitda > 0:
+            ev_ebitda = safe_ratio(ev, ebitda, None)
+        ev_gp = safe_ratio(ev, gross_profit, None) if ev and gross_profit else None
+
+        return {
+            "market_cap": market_cap,
+            "ev": ev,
+            "revenue": revenue,
+            "ebitda": ebitda,
+            "gross_profit": gross_profit,
+            "net_income": info.get("netIncomeToCommon") or info.get("netIncome"),
+            "rev_growth": rev_growth,
+            "gross_margin": gross_margin,
+            "employees": info.get("fullTimeEmployees"),
+            "pe_ratio": pe_ratio,
+            "ev_rev": ev_rev,
+            "ev_ebitda": ev_ebitda,
+            "ev_gp": ev_gp,
+            "yf_sector": info.get("sector"),
+            "yf_industry": info.get("industry"),
+            "long_business_summary": info.get("longBusinessSummary"),
+        }
+    except Exception:
+        return None
+
+
+def enrich_company_for_ma(company):
+    ticker = company.get("ticker", "").upper()
+    fin = fetch_market_financials(ticker)
+    if not fin or not fin.get("ev"):
+        return None
+
+    sector = company.get("sector") or "public_unclassified"
+    if sector == "public_unclassified":
+        sector = infer_public_sector(fin.get("yf_sector"), fin.get("yf_industry"), company.get("name"))
+
+    return {
+        **company,
+        **fin,
+        "sector": sector,
+        "sub": company.get("sub") if company.get("sub") != "SEC public issuer" else (fin.get("yf_industry") or "Public company"),
+        "source": company.get("source") or ("Valence curated financials" if ticker in FINANCIALS_DB else "SEC universe + yfinance market data"),
+    }
+
+
+def company_by_ticker(ticker: str):
+    ticker = (ticker or "").upper().strip()
+    for company in COMPANY_UNIVERSE:
+        if company.get("ticker") == ticker:
+            fin = FINANCIALS_DB.get(ticker)
+            if fin:
+                return {**company, **fin}
+    for company in load_sec_public_company_universe():
+        if company.get("ticker") == ticker:
+            return enrich_company_for_ma(company)
+    return None
+
+
+def safe_ratio(numerator, denominator, default=0):
+    try:
+        if denominator in [None, 0]:
+            return default
+        return float(numerator or 0) / float(denominator)
+    except Exception:
+        return default
+
+
+def money_b(value):
+    if value is None:
+        return None
+    return round(float(value) / 1e9, 2)
+
+
+def pct(value):
+    if value is None:
+        return None
+    return round(float(value) * 100, 1)
+
+
+def deal_sector_hits(target):
+    text = " ".join([
+        target.get("sector", ""),
+        target.get("sub", ""),
+        SECTOR_THEMES.get(target.get("sector"), {}).get("label", ""),
+    ]).lower()
+    hits = []
+    for deal in FALLBACK_MA_DEALS:
+        haystack = " ".join([deal["sector"], deal["angle"], deal["buyer"], deal["target"]]).lower()
+        if any(token and token in haystack for token in text.replace("/", " ").split()):
+            hits.append(deal)
+    return hits[:3]
+
+
+SECTOR_ADJACENCY = {
+    "saas_tech": {"saas_tech": 1.0, "financial": 0.68, "healthcare": 0.58, "industrials": 0.46, "consumer": 0.30, "public_unclassified": 0.36},
+    "financial": {"financial": 1.0, "saas_tech": 0.66, "consumer": 0.52, "healthcare": 0.30, "industrials": 0.24, "public_unclassified": 0.32},
+    "healthcare": {"healthcare": 1.0, "saas_tech": 0.58, "industrials": 0.34, "financial": 0.28, "consumer": 0.18, "public_unclassified": 0.30},
+    "consumer": {"consumer": 1.0, "financial": 0.48, "saas_tech": 0.30, "industrials": 0.26, "healthcare": 0.18, "public_unclassified": 0.28},
+    "industrials": {"industrials": 1.0, "saas_tech": 0.46, "healthcare": 0.34, "consumer": 0.26, "financial": 0.24, "public_unclassified": 0.30},
+    "public_unclassified": {"public_unclassified": 0.42, "saas_tech": 0.36, "financial": 0.32, "healthcare": 0.30, "industrials": 0.30, "consumer": 0.28},
+}
+
+
+def sector_adjacency(acquirer, target):
+    acq_sector = acquirer.get("sector") or "public_unclassified"
+    target_sector = target.get("sector") or "public_unclassified"
+    return SECTOR_ADJACENCY.get(acq_sector, {}).get(target_sector, 0.15)
+
+
+def strategic_fit_score(acquirer, target):
+    acq_sector = acquirer.get("sector")
+    target_sector = target.get("sector")
+    acq_theme = SECTOR_THEMES.get(acq_sector, {})
+    target_text = f"{target.get('sub', '')} {SECTOR_THEMES.get(target_sector, {}).get('label', '')}".lower()
+    adjacency = sector_adjacency(acquirer, target)
+
+    score = 8 + adjacency * 32
+    if target_sector in acq_theme.get("best_targets", []):
+        score += 20
+    if any(theme_word in target_text for theme in acq_theme.get("themes", []) for theme_word in theme.split()):
+        score += 8
+    return min(score, 55)
+
+
+def build_merger_case(acquirer, target, req: MARecommendationRequest):
+    acq_ev = float(acquirer.get("ev") or 0)
+    target_ev = float(target.get("ev") or 0)
+    acq_market_cap = float(acquirer.get("market_cap") or acq_ev or 0)
+    target_revenue = float(target.get("revenue") or 0)
+    target_ebitda = float(target.get("ebitda") or 0)
+    acq_net_income = float(acquirer.get("net_income") or 0)
+    target_net_income = float(target.get("net_income") or 0)
+
+    premium = max(float(req.premium_pct or 0), 0) / 100
+    purchase_ev = target_ev * (1 + premium)
+    cash_pct = max(float(req.cash_pct or 0), 0) / 100
+    debt_pct = max(float(req.debt_pct or 0), 0) / 100
+    stock_pct = max(float(req.stock_pct or 0), 0) / 100
+    total_mix = cash_pct + debt_pct + stock_pct
+    if total_mix <= 0:
+        cash_pct, debt_pct, stock_pct, total_mix = 0.35, 0.35, 0.30, 1
+    cash_pct, debt_pct, stock_pct = cash_pct / total_mix, debt_pct / total_mix, stock_pct / total_mix
+
+    cost_synergies = target_revenue * (max(float(req.cost_synergy_pct or 0), 0) / 100)
+    revenue_synergies = target_revenue * (max(float(req.revenue_synergy_pct or 0), 0) / 100)
+    incremental_ebitda = target_ebitda + cost_synergies + revenue_synergies * 0.25
+
+    interest_rate = 0.065
+    tax_rate = 0.24
+    debt_cost = purchase_ev * debt_pct * interest_rate
+    after_tax_income = (target_net_income + cost_synergies * (1 - tax_rate) + revenue_synergies * 0.12) - debt_cost * (1 - tax_rate)
+    share_dilution = safe_ratio(purchase_ev * stock_pct, acq_market_cap)
+    proforma_income = acq_net_income + after_tax_income
+    eps_change = safe_ratio(proforma_income, 1 + share_dilution, acq_net_income) - acq_net_income
+    eps_change_pct = safe_ratio(eps_change, abs(acq_net_income), 0) * 100 if acq_net_income else 0
+
+    affordability = safe_ratio(purchase_ev, acq_ev, 9)
+    affordability_score = max(0, 18 - affordability * 32)
+    multiple_arbitrage = float(acquirer.get("ev_rev") or 0) - float(target.get("ev_rev") or 0)
+    arbitrage_score = max(0, min(14, multiple_arbitrage * 2.2))
+    growth_score = max(0, min(8, (float(target.get("rev_growth") or 0) - float(acquirer.get("rev_growth") or 0)) * 35 + 4))
+    precedent_score = 8 if deal_sector_hits(target) else 3
+    fit_score = strategic_fit_score(acquirer, target)
+    model_score = max(0, min(12, eps_change_pct + 6))
+    adjacency = sector_adjacency(acquirer, target)
+    unrelated_penalty = 0
+    if adjacency < 0.25:
+        unrelated_penalty = 38
+    elif adjacency < 0.40:
+        unrelated_penalty = 22
+    elif adjacency < 0.55:
+        unrelated_penalty = 10
+
+    total_score = round(max(5, min(99, fit_score + affordability_score + arbitrage_score + growth_score + precedent_score + model_score - unrelated_penalty)), 1)
+
+    thesis = [
+        f"{target['name']} adds {target.get('sub', 'category')} exposure to {acquirer['name']}.",
+        f"Purchase EV is {affordability * 100:.1f}% of acquirer EV at a {req.premium_pct:.0f}% premium.",
+        f"Modeled year-one EPS impact is {eps_change_pct:.1f}% using visible synergy assumptions.",
+    ]
+    if adjacency < 0.40:
+        thesis.insert(0, "Strategic fit is weak: buyer and target operate in unrelated or low-adjacency sectors.")
+    elif adjacency < 0.60:
+        thesis.insert(0, "Strategic fit is moderate and depends on a clearly articulated expansion thesis.")
+    else:
+        thesis.insert(0, "Strategic fit is credible based on sector and business-model adjacency.")
+    if multiple_arbitrage > 0:
+        thesis.append(f"Acquirer trades {multiple_arbitrage:.1f}x EV/Revenue above target, supporting stock/deal currency logic.")
+
+    return {
+        "score": total_score,
+        "acquirer": {
+            "ticker": acquirer["ticker"],
+            "name": acquirer["name"],
+            "sector": SECTOR_THEMES.get(acquirer.get("sector"), {}).get("label", acquirer.get("sector")),
+            "ev_b": money_b(acq_ev),
+            "ev_rev": acquirer.get("ev_rev"),
+            "rev_growth": pct(acquirer.get("rev_growth")),
+        },
+        "target": {
+            "ticker": target["ticker"],
+            "name": target["name"],
+            "sector": SECTOR_THEMES.get(target.get("sector"), {}).get("label", target.get("sector")),
+            "sub": target.get("sub"),
+            "ev_b": money_b(target_ev),
+            "revenue_b": money_b(target.get("revenue")),
+            "ev_rev": target.get("ev_rev"),
+            "rev_growth": pct(target.get("rev_growth")),
+        },
+        "model": {
+            "purchase_ev_b": money_b(purchase_ev),
+            "premium_pct": round(premium * 100, 1),
+            "cash_pct": round(cash_pct * 100, 1),
+            "debt_pct": round(debt_pct * 100, 1),
+            "stock_pct": round(stock_pct * 100, 1),
+            "cost_synergies_m": round(cost_synergies / 1e6, 1),
+            "revenue_synergies_m": round(revenue_synergies / 1e6, 1),
+            "incremental_ebitda_m": round(incremental_ebitda / 1e6, 1),
+            "eps_change_pct": round(eps_change_pct, 1),
+            "deal_size_to_acquirer_ev_pct": round(affordability * 100, 1),
+        },
+        "rationale": thesis,
+        "risks": [
+            "Needs diligence on customer overlap, churn, and product integration cost.",
+            "Public-market multiples can shift before signing and closing.",
+            "Regulatory review risk rises when buyer and target are close substitutes.",
+        ],
+        "precedents": deal_sector_hits(target),
+    }
+
+
+@app.get("/api/ma/universe")
+def ma_universe(limit: int = 6000, search: str = ""):
+    public_universe = load_sec_public_company_universe()
+    search_text = (search or "").lower().strip()
+    limit = max(1, min(int(limit or 6000), 20000))
+    companies = []
+
+    for company in public_universe:
+        if search_text:
+            haystack = " ".join([
+                company.get("ticker", ""),
+                company.get("name", ""),
+                company.get("sub", ""),
+            ]).lower()
+            if search_text not in haystack:
+                continue
+
+        fin = FINANCIALS_DB.get(company["ticker"], {})
+        companies.append({
+            "ticker": company["ticker"],
+            "name": company["name"],
+            "sector": SECTOR_THEMES.get(company.get("sector"), {}).get("label", company.get("sector")),
+            "raw_sector": company.get("sector"),
+            "sub": company.get("sub", ""),
+            "ev_b": money_b(fin.get("ev")),
+            "market_cap_b": money_b(fin.get("market_cap")),
+            "ev_rev": fin.get("ev_rev"),
+            "rev_growth": pct(fin.get("rev_growth")),
+            "has_financials": bool(fin),
+            "source": company.get("source", "SEC company_tickers.json"),
+        })
+        if len(companies) >= limit:
+            break
+
+    return {
+        "updatedAt": datetime.utcnow().isoformat() + "Z",
+        "total_available": len(public_universe),
+        "returned": len(companies),
+        "coverage_note": "Universe comes from SEC company_tickers.json plus Valence curated records. Detailed valuation metrics are enriched on demand.",
+        "companies": companies,
+        "sectors": [{"key": key, "label": value["label"]} for key, value in SECTOR_THEMES.items()],
+    }
+
+
+@app.post("/api/ma/recommendations")
+def ma_recommendations(req: MARecommendationRequest):
+    acquirer = company_by_ticker(req.acquirer_ticker or "CRM")
+    if not acquirer:
+        raise HTTPException(status_code=404, detail="Acquirer not found or could not be enriched with market data.")
+
+    max_results = max(1, min(int(req.max_results or 5), 5))
+    candidate_limit = max(20, min(int(req.candidate_limit or 120), 400))
+    target_sector = (req.target_sector or "").strip()
+    target_query = (req.target_query or "").lower().strip()
+    target_ticker = (req.target_ticker or "").upper().strip()
+    raw_universe = load_sec_public_company_universe()
+
+    curated_tickers = {company["ticker"] for company in COMPANY_UNIVERSE}
+    candidates_raw = []
+    seen = set()
+
+    def candidate_matches(company):
+        if company["ticker"] == acquirer["ticker"]:
+            return False
+        if target_query:
+            haystack = " ".join([
+                company.get("ticker", ""),
+                company.get("name", ""),
+                company.get("sub", ""),
+            ]).lower()
+            if target_query not in haystack:
+                return False
+        if target_sector and company.get("sector") not in [target_sector, "public_unclassified"]:
+            return False
+        return True
+
+    for company in COMPANY_UNIVERSE:
+        if candidate_matches(company):
+            seen.add(company["ticker"])
+            candidates_raw.append(company)
+
+    for company in raw_universe:
+        ticker = company["ticker"]
+        if ticker in seen or ticker in curated_tickers:
+            continue
+        if not candidate_matches(company):
+            continue
+        seen.add(ticker)
+        candidates_raw.append(company)
+        if len(candidates_raw) >= candidate_limit:
+            break
+
+    candidates = []
+
+    if target_ticker:
+        selected_target = company_by_ticker(target_ticker)
+        if selected_target and selected_target["ticker"] != acquirer["ticker"]:
+            candidates.append(build_merger_case(acquirer, selected_target, req))
+
+    for company in candidates_raw[:candidate_limit]:
+        if target_ticker and company["ticker"] == target_ticker:
+            continue
+        enriched = enrich_company_for_ma(company)
+        if not enriched:
+            continue
+        if target_sector and enriched.get("sector") != target_sector:
+            continue
+        case = build_merger_case(acquirer, enriched, req)
+        candidates.append(case)
+
+    if target_ticker:
+        candidates.sort(key=lambda item: (item["target"]["ticker"] != target_ticker, -item["score"]))
+    else:
+        candidates.sort(key=lambda item: item["score"], reverse=True)
+    top = candidates[:max_results]
+
+    return {
+        "updatedAt": datetime.utcnow().isoformat() + "Z",
+        "source": "SEC public-company universe + Valence curated data + yfinance market-data enrichment + official deal precedents",
+        "universe_total": len(raw_universe),
+        "screened_count": len(candidates_raw[:candidate_limit]),
+        "financially_modeled_count": len(candidates),
+        "assumptions": {
+            "premium_pct": req.premium_pct,
+            "cash_pct": req.cash_pct,
+            "debt_pct": req.debt_pct,
+            "stock_pct": req.stock_pct,
+            "cost_synergy_pct": req.cost_synergy_pct,
+            "revenue_synergy_pct": req.revenue_synergy_pct,
+            "interest_rate": 6.5,
+            "tax_rate": 24.0,
+        },
+        "recommendations": top,
+        "dataArchitecture": [
+            "SEC EDGAR company submissions and XBRL facts for public-company filings.",
+            "Market-data providers for prices, enterprise value, ownership, and transaction feeds.",
+            "News/event feeds such as GDELT for monitoring buyer intent, sector catalysts, and deal rumors.",
+            "Private-company providers such as Crunchbase, PitchBook, CB Insights, or Apollo for smaller targets.",
+        ],
+        "modelLimitations": [
+            "Public company list is broad SEC ticker coverage; smaller private-company scale still requires licensed private-company data.",
+            "Non-curated tickers are enriched on demand, so very broad screens intentionally cap live financial lookups for speed.",
+            "Recommendation score is a screening model, not fairness opinion or investment advice.",
+            "A banker-grade output still needs management forecasts, debt schedule, purchase accounting, and integration plan.",
+        ],
+    }
+
+
+@app.get("/api/market-intelligence/deals")
+def latest_deals(limit: int = 6):
+    return {
+        "source": "official-fallback",
+        "updatedAt": datetime.utcnow().isoformat() + "Z",
+        "deals": FALLBACK_MA_DEALS[: max(1, min(limit, len(FALLBACK_MA_DEALS)))],
     }
 
 

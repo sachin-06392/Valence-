@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+numpy
+requests
+python-multipart
+yfinance
+reportlab
+matplotlib
+python-pptx==1.0.2
+Pillow

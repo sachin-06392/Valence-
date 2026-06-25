@@ -4,6 +4,8 @@ import InputPanel from "./components/InputPanel";
 import ResultsPanel from "./components/ResultsPanel";
 import CompanyDetail from "./components/CompanyDetail";
 import MarketIntelligenceTerminal from "./components/MarketIntelligenceTerminal";
+import MAModelStudio from "./components/MAModelStudio";
+import MADealDetail from "./components/MADealDetail";
 import { apiUrl } from "./api";
 import "./App.css";
 
@@ -174,6 +176,8 @@ function HomePage() {
     if (window.location.hash === "#analysis-workbench") {
       setActiveWorkspaceTab("builder");
       setHasSubmitted(!!localStorage.getItem("valenceLastResults"));
+    } else if (window.location.hash === "#ma-studio") {
+      setActiveWorkspaceTab("ma");
     }
   }, []);
 
@@ -194,6 +198,11 @@ function HomePage() {
   const openMarket = () => {
     setActiveWorkspaceTab("market");
     window.history.replaceState(null, "", window.location.pathname);
+  };
+
+  const openMAStudio = () => {
+    setActiveWorkspaceTab("ma");
+    window.history.replaceState(null, "", "#ma-studio");
   };
 
   const handleSubmit = async (formData) => {
@@ -263,10 +272,10 @@ function HomePage() {
           </div>
 
           <span className="brand">Valence</span>
-          <span className="nav-pill">Beta</span>
+          <span className="nav-pill">BETA</span>
         </div>
 
-        <div className="nav-right">60+ public comps · 5 sectors</div>
+        <div className="nav-right" aria-hidden="true" />
       </nav>
 
       <div className="workspace-tabs">
@@ -275,14 +284,21 @@ function HomePage() {
           className={activeWorkspaceTab === "market" ? "active" : ""}
           onClick={openMarket}
         >
-          Market Intelligence
+          MARKET INTELLIGENCE
         </button>
         <button
           type="button"
           className={activeWorkspaceTab === "builder" ? "active" : ""}
           onClick={openBuilder}
         >
-          Build Comp Set
+          BUILD COMP SET
+        </button>
+        <button
+          type="button"
+          className={activeWorkspaceTab === "ma" ? "active" : ""}
+          onClick={openMAStudio}
+        >
+          M&A STUDIO
         </button>
       </div>
 
@@ -341,6 +357,8 @@ function HomePage() {
           </div>
         </section>
       )}
+
+      {activeWorkspaceTab === "ma" && <MAModelStudio />}
     </div>
   );
 }
@@ -351,6 +369,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/company/:ticker" element={<CompanyDetail />} />
+        <Route path="/ma-deal/:dealId" element={<MADealDetail />} />
       </Routes>
     </BrowserRouter>
   );

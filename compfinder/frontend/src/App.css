@@ -38,7 +38,7 @@ body {
 .logo img { width: 32px; height: 32px; object-fit: contain; }
 .brand { font-size: 15px; font-weight: 800; color: #fff; letter-spacing: 0; }
 .nav-pill { font-size: 11px; background: rgba(34, 211, 238, 0.12); color: #67e8f9; padding: 3px 9px; border-radius: 20px; font-weight: 800; border: 1px solid rgba(34, 211, 238, 0.26); }
-.nav-right { font-size: 12px; color: #94a3b8; }
+.nav-right { display: none; }
 
 .workspace-tabs {
   position: sticky;
@@ -65,6 +65,8 @@ body {
   font: inherit;
   font-size: 13px;
   font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   cursor: pointer;
   transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease, transform 0.18s ease;
 }
