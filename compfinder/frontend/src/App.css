@@ -50,6 +50,7 @@ body {
   top: 62px;
   z-index: 90;
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.16);
@@ -60,7 +61,7 @@ body {
 
 .workspace-tabs button {
   position: relative;
-  min-width: 180px;
+  min-width: 164px;
   min-height: 42px;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.18);

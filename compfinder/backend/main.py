@@ -892,6 +892,7 @@ def generate_report(req: ReportRequest):
             "matchScore": raw.get("match_score") or raw.get("matchScore"),
             "marketDataDate": raw.get("marketDataDate") or "Latest available market/database data",
             "financialPeriod": raw.get("financialPeriod") or "Latest available fiscal year / LTM where available",
+            "defensibilityTest": raw.get("defensibilityTest"),
         }
 
     selected_company = adapt_company(company or {})

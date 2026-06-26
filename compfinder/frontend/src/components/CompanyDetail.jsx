@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import { apiUrl } from "../api";
+import { buildDefensibilityTest } from "../utils/defensibility";
 import "./CompanyDetail.css";
 import ReportButton from "./ReportButton";
 
@@ -229,6 +230,16 @@ export default function CompanyDetail() {
     ? ebitdaMargin * 100
     : null;
 
+  const defensibilityTest = buildDefensibilityTest({
+    company,
+    stock,
+    financials,
+    revenueM,
+    operatingIncomeM,
+    cashM,
+    totalLiabilitiesM,
+  });
+
   const companyForReport = {
     ticker: company.ticker || ticker,
     symbol: company.ticker || ticker,
@@ -285,6 +296,7 @@ export default function CompanyDetail() {
 
     financials,
     filings,
+    defensibilityTest,
   };
 
   const privateCompanyForReport = {
@@ -360,6 +372,7 @@ export default function CompanyDetail() {
 
     financials,
     filings,
+    defensibilityTest,
   };
 
   const compsForReport =
@@ -446,6 +459,70 @@ export default function CompanyDetail() {
           <h3>{bigMoney(stock.marketCap)}</h3>
         </div>
       </div>
+
+      <h2 className="detail-section-title">AI Defensibility Test</h2>
+
+      <section className="defensibility-panel" aria-label="AI defensibility test">
+        <div className="defensibility-summary">
+          <div>
+            <p className="defensibility-label">AI Copy Risk</p>
+            <h3 className={`risk-${defensibilityTest.copyRisk.toLowerCase()}`}>
+              {defensibilityTest.copyRisk}
+            </h3>
+          </div>
+
+          <div>
+            <p className="defensibility-label">Defensibility Score</p>
+            <h3>{defensibilityTest.score.toFixed(1)} / 10</h3>
+          </div>
+
+          <p>{defensibilityTest.summary}</p>
+        </div>
+
+        <div className="defensibility-callouts">
+          <div>
+            <span>Strongest moat</span>
+            <strong>{defensibilityTest.topStrength.name}</strong>
+            <p>{defensibilityTest.topStrength.note}</p>
+          </div>
+
+          <div>
+            <span>Biggest diligence gap</span>
+            <strong>{defensibilityTest.keyWeakness.name}</strong>
+            <p>{defensibilityTest.keyWeakness.note}</p>
+          </div>
+
+          <div>
+            <span>Valuation impact</span>
+            <strong>{defensibilityTest.copyRisk} AI risk</strong>
+            <p>{defensibilityTest.valuationImpact}</p>
+          </div>
+        </div>
+
+        <div className="defensibility-grid">
+          {defensibilityTest.categories.map((category) => (
+            <div className="defensibility-factor" key={category.name}>
+              <div>
+                <strong>{category.name}</strong>
+                <span>{category.score.toFixed(1)} / 10</span>
+              </div>
+              <div className="factor-meter" aria-hidden="true">
+                <span style={{ width: `${category.score * 10}%` }} />
+              </div>
+              <p>{category.note}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="diligence-box">
+          <h3>Buyer Diligence Questions</h3>
+          <div>
+            {defensibilityTest.questions.map((question) => (
+              <p key={question}>{question}</p>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <h2 className="detail-section-title">Latest Financials</h2>
 

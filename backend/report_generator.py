@@ -152,6 +152,13 @@ def fmt_plain(value):
     return str(value)
 
 
+def truncate_text(value, limit=118):
+    text = fmt_plain(value)
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
 def company_name(c):
     return safe_get(c, "companyName", "name", "company", "Company", default="Company")
 
@@ -1144,6 +1151,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
 
     target_rev = revenue_m(target)
     target_ebitda = ebitda_m(target)
+    defensibility = selected.get("defensibilityTest") or {}
 
     ev_rev_values = [
         ev_revenue(c)
@@ -1313,7 +1321,73 @@ def generate_banker_report(selected_company, comps, private_company, output_path
     story.append(build_table(target_profile, col_widths=[2.0 * inch, 5.1 * inch], compact=True))
     story.append(Spacer(1, 12))
 
-    story.append(build_section_title("Comparable Selection Rationale", "03 / Why this comp"))
+    if isinstance(defensibility, dict) and defensibility:
+        story.append(build_section_title("AI Defensibility Test", "03 / Moat and copy-risk readout"))
+        story.append(Spacer(1, 7))
+
+        score = to_float(defensibility.get("score"))
+        copy_risk = defensibility.get("copyRisk") or "N/A"
+        summary = defensibility.get("summary") or "Defensibility score based on available company, sector, scale, and financial signals."
+        valuation_impact = defensibility.get("valuationImpact") or "Valuation should be tied to proof of durable moat, retention, and product differentiation."
+        top_strength = defensibility.get("topStrength") or {}
+        key_weakness = defensibility.get("keyWeakness") or {}
+
+        defensibility_summary = [
+            ["Item", "Readout"],
+            ["AI Copy Risk", fmt_plain(copy_risk)],
+            ["Defensibility Score", f"{score:.1f} / 10" if score is not None else "N/A"],
+            ["Summary", truncate_text(summary, 160)],
+            [
+                "Strongest Moat",
+                truncate_text(
+                    f"{top_strength.get('name', 'N/A')}: {top_strength.get('note', '')}",
+                    160,
+                ),
+            ],
+            [
+                "Biggest Diligence Gap",
+                truncate_text(
+                    f"{key_weakness.get('name', 'N/A')}: {key_weakness.get('note', '')}",
+                    160,
+                ),
+            ],
+            ["Valuation Impact", truncate_text(valuation_impact, 160)],
+        ]
+
+        story.append(build_table(defensibility_summary, col_widths=[1.7 * inch, 5.4 * inch], compact=True))
+        story.append(Spacer(1, 8))
+
+        category_rows = [["Category", "Score", "Plain-English Read"]]
+        for category in (defensibility.get("categories") or [])[:12]:
+            category_rows.append(
+                [
+                    fmt_plain(category.get("name")),
+                    f"{to_float(category.get('score')):.1f} / 10"
+                    if to_float(category.get("score")) is not None
+                    else "N/A",
+                    truncate_text(category.get("note"), 118),
+                ]
+            )
+
+        if len(category_rows) > 1:
+            story.append(
+                build_table(
+                    category_rows,
+                    col_widths=[1.55 * inch, 0.75 * inch, 4.8 * inch],
+                    font_size=7.4,
+                    compact=True,
+                )
+            )
+            story.append(Spacer(1, 8))
+
+        questions = defensibility.get("questions") or []
+        if questions:
+            story.append(make_para("Buyer diligence questions", styles["body_emphasis"]))
+            for question in questions[:6]:
+                story.append(make_bullet(question, styles["body"]))
+            story.append(Spacer(1, 10))
+
+    story.append(build_section_title("Comparable Selection Rationale", "04 / Why this comp"))
     story.append(Spacer(1, 7))
 
     for reason in selected_comp_rationale(target, selected, peer_comps):
@@ -1321,7 +1395,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
 
     story.append(Spacer(1, 11))
 
-    story.append(build_section_title("Peer Comparable Company Set", "04 / Public market screen"))
+    story.append(build_section_title("Peer Comparable Company Set", "05 / Public market screen"))
     story.append(Spacer(1, 7))
 
     peer_rows = [
@@ -1376,7 +1450,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
     )
 
     story.append(Spacer(1, 12))
-    story.append(build_section_title("Full Peer Statistics", "05 / Multiple distribution"))
+    story.append(build_section_title("Full Peer Statistics", "06 / Multiple distribution"))
     story.append(Spacer(1, 7))
 
     stats_table = [
@@ -1418,7 +1492,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
     )
 
     story.append(PageBreak())
-    story.append(build_section_title("Match Score Breakdown", "06 / Similarity drivers"))
+    story.append(build_section_title("Match Score Breakdown", "07 / Similarity drivers"))
     story.append(Spacer(1, 7))
 
     breakdown_rows = [["Category", "Weight", "Score", "Comment"]]
@@ -1432,7 +1506,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         )
     )
 
-    story.append(build_section_title("Valuation Summary", "07 / Enterprise value output"))
+    story.append(build_section_title("Valuation Summary", "08 / Enterprise value output"))
     story.append(Spacer(1, 7))
 
     valuation_rows = [
@@ -1480,7 +1554,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
     )
 
     story.append(Spacer(1, 12))
-    story.append(build_section_title("EV/Revenue Sensitivity", "08 / Revenue multiple cases"))
+    story.append(build_section_title("EV/Revenue Sensitivity", "09 / Revenue multiple cases"))
     story.append(Spacer(1, 7))
 
     base_multiples = [3.5, 4.0, 4.5, 5.0]
@@ -1556,7 +1630,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
 
     story.append(PageBreak())
 
-    story.append(build_section_title("Charts and Data Quality Review", "09 / Multiple visuals"))
+    story.append(build_section_title("Charts and Data Quality Review", "10 / Multiple visuals"))
     story.append(Spacer(1, 8))
 
     labels = [ticker(c) for c in peer_comps]
@@ -1589,7 +1663,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
         story.append(Image(ev_ebitda_chart, width=7.1 * inch, height=3.15 * inch))
         story.append(Spacer(1, 10))
 
-    story.append(build_section_title("Red Flag / Data Quality Section", "10 / Review notes"))
+    story.append(build_section_title("Red Flag / Data Quality Section", "11 / Review notes"))
     story.append(Spacer(1, 7))
 
     warning_rows = [["Issue"]]
@@ -1612,7 +1686,7 @@ def generate_banker_report(selected_company, comps, private_company, output_path
     story.append(warning_table)
     story.append(Spacer(1, 12))
 
-    story.append(build_section_title("Metric Definitions", "11 / Appendix"))
+    story.append(build_section_title("Metric Definitions", "12 / Appendix"))
     story.append(Spacer(1, 7))
 
     definitions = [

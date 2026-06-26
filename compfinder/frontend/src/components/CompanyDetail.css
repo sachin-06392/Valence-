@@ -40,6 +40,7 @@
 
 .company-header,
 .metric-card,
+.defensibility-panel,
 .financial-table,
 .peer-comparison-table,
 .filings-table,
@@ -166,6 +167,163 @@
   margin: 0;
   color: #f8fafc;
   font-size: 20px;
+}
+
+.defensibility-panel {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 8px;
+  border-radius: 16px;
+  padding: 18px;
+}
+
+.defensibility-summary {
+  display: grid;
+  grid-template-columns: 180px 220px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  padding-bottom: 16px;
+}
+
+.defensibility-summary h3 {
+  margin: 5px 0 0;
+  color: #f8fafc;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.defensibility-summary p:last-child,
+.defensibility-callouts p,
+.defensibility-factor p,
+.diligence-box p {
+  margin: 0;
+  color: #9aa8bd;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.defensibility-label {
+  margin: 0;
+  color: #67e8f9;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.defensibility-summary .risk-low {
+  color: #86efac;
+}
+
+.defensibility-summary .risk-medium {
+  color: #fde68a;
+}
+
+.defensibility-summary .risk-high {
+  color: #fb7185;
+}
+
+.defensibility-callouts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.defensibility-callouts > div,
+.defensibility-factor,
+.diligence-box {
+  border: 1px solid rgba(148, 163, 184, 0.13);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(15, 23, 42, 0.42);
+}
+
+.defensibility-callouts span {
+  display: block;
+  margin-bottom: 7px;
+  color: #67e8f9;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.defensibility-callouts strong {
+  display: block;
+  margin-bottom: 7px;
+  color: #f8fafc;
+  font-size: 15px;
+}
+
+.defensibility-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.defensibility-factor {
+  min-height: 158px;
+}
+
+.defensibility-factor > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.defensibility-factor strong {
+  color: #f8fafc;
+  font-size: 13px;
+}
+
+.defensibility-factor span {
+  flex: 0 0 auto;
+  color: #a7f3d0;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.factor-meter {
+  height: 8px;
+  margin-bottom: 11px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.14);
+}
+
+.factor-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #22d3ee);
+}
+
+.diligence-box h3 {
+  margin: 0 0 12px;
+  color: #f8fafc;
+  font-size: 15px;
+}
+
+.diligence-box div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.diligence-box p {
+  position: relative;
+  padding-left: 16px;
+}
+
+.diligence-box p::before {
+  position: absolute;
+  left: 0;
+  color: #67e8f9;
+  content: ">";
+  font-weight: 800;
 }
 
 .financial-table {
@@ -333,6 +491,13 @@
 
   .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .defensibility-summary,
+  .defensibility-callouts,
+  .defensibility-grid,
+  .diligence-box div {
+    grid-template-columns: 1fr;
   }
 }
 

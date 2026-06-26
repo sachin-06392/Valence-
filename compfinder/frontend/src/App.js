@@ -6,6 +6,7 @@ import CompanyDetail from "./components/CompanyDetail";
 import MarketIntelligenceTerminal from "./components/MarketIntelligenceTerminal";
 import MAModelStudio from "./components/MAModelStudio";
 import MADealDetail from "./components/MADealDetail";
+import DefensibilityStudio from "./components/DefensibilityStudio";
 import { apiUrl } from "./api";
 import "./App.css";
 
@@ -178,6 +179,8 @@ function HomePage() {
       setHasSubmitted(!!localStorage.getItem("valenceLastResults"));
     } else if (window.location.hash === "#ma-studio") {
       setActiveWorkspaceTab("ma");
+    } else if (window.location.hash === "#ai-defensibility") {
+      setActiveWorkspaceTab("defensibility");
     }
   }, []);
 
@@ -203,6 +206,11 @@ function HomePage() {
   const openMAStudio = () => {
     setActiveWorkspaceTab("ma");
     window.history.replaceState(null, "", "#ma-studio");
+  };
+
+  const openDefensibilityStudio = () => {
+    setActiveWorkspaceTab("defensibility");
+    window.history.replaceState(null, "", "#ai-defensibility");
   };
 
   const handleSubmit = async (formData) => {
@@ -300,6 +308,13 @@ function HomePage() {
         >
           M&A STUDIO
         </button>
+        <button
+          type="button"
+          className={activeWorkspaceTab === "defensibility" ? "active" : ""}
+          onClick={openDefensibilityStudio}
+        >
+          AI DEFENSIBILITY
+        </button>
       </div>
 
       {activeWorkspaceTab === "market" && (
@@ -359,6 +374,8 @@ function HomePage() {
       )}
 
       {activeWorkspaceTab === "ma" && <MAModelStudio />}
+
+      {activeWorkspaceTab === "defensibility" && <DefensibilityStudio />}
     </div>
   );
 }
